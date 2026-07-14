@@ -434,6 +434,9 @@ function leafBurst(x,y){const cs=['#7cc35a','#5aa03e','#ffd94a','#ff8fb1'];
   for(let i=0;i<10;i++){const a=Math.random()*6.28,v=50+Math.random()*130;
     G.particles.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v-70,life:.6+Math.random()*.5,t:0,col:cs[i%4],r:3+Math.random()*3,grav:180,leaf:true,rot:Math.random()*6,vr:(Math.random()-.5)*10});}}
 function floatText(x,y,txt,col){G.floats.push({x,y,txt,col,t:0,life:1});}
+function ringFx(x,y,col,r0){G.particles.push({x,y,vx:0,vy:0,life:.32,t:0,col,r:r0||6,grav:0,ring:true});}
+function muzzle(x,y){for(let i=0;i<4;i++){const a=Math.random()*6.28,v=30+Math.random()*40;
+  G.particles.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,life:.25,t:0,col:'#fff6c0',r:2+Math.random()*2,grav:40});}}
 
 function recomputeSynergy(){
   for(const d of G.defenders){d.synD=1;d.synP=1;d.syn=false;}
@@ -503,9 +506,9 @@ function update(dt){
       G.sun+=a;floatText(d.px,d.py-cell*.4,'+'+a,'#ffd94a');burst(d.px,d.py-cell*.3,'#ffe27a',8);syncHUD();} continue; }
     d.fireT+=dt; const tg=findTarget(d);
     if(tg && d.fireT>=1/d.rate){ d.fireT=0; d.atk=1;
-      if(d.proj){ shoot(d,tg); }
+      if(d.proj){ shoot(d,tg); muzzle(d.px,d.py-cell*.15); }
       else { hitEnemy(tg,d.dmg*d.synD); if(d.splash)splashDamage(tg.x,tg.y,d.splash*cell,d.dmg*d.synD*.6,d.air,tg);
-        burst(tg.x,tg.y,'#ffcaa8',6); }
+        burst(tg.x,tg.y,'#ffcaa8',6); ringFx(tg.x,tg.y,'#ffd9a8',d.splash?d.splash*cell:8); }
     }
   }
 
@@ -517,6 +520,7 @@ function update(dt){
     if(dist<14){ const killed=hitEnemy(t,p.dmg,p.bonus);
       if(p.splash)splashDamage(t.x,t.y,p.splash*cell,p.dmg*.6,p.air,t);
       if(!p.pierce)p.alive=false; burst(t.x,t.y,p.kind==='tongue'?'#e0525f':'#cfe86a',6);
+      ringFx(t.x,t.y,'#eaff8a',p.splash?p.splash*cell:9);
     } else { p.x+=dx/dist*p.speed*dt; p.y+=dy/dist*p.speed*dt; }
   }
 
@@ -781,15 +785,19 @@ function drawEnemy(e){const s=e.size*(cell/60);
   if(e.hp<e.maxHp)hpBar(e.x,e.y-s*1.5,s*1.8,e.hp/e.maxHp,e.boss?'#ff9f4a':e.mini?'#ffd24a':'#ff5b6e');}
 function hpBar(x,y,w,fr,col){ctx.fillStyle='rgba(0,0,0,.45)';roundRect(x-w/2,y,w,5,2.5);ctx.fill();ctx.fillStyle=col;roundRect(x-w/2,y,w*Math.max(0,fr),5,2.5);ctx.fill();}
 function drawProj(p){
+  // glow
+  ctx.save();ctx.shadowColor=({tongue:'#ff8f9a',acorn:'#c98a4a',coin:'#ffe27a',dart:'#ff9a5a',feather:'#e8d0a0',sting:'#fff0a0'}[p.kind])||'#eaff8a';ctx.shadowBlur=8;
   if(p.kind==='tongue'){ctx.fillStyle='#e0525f';ctx.beginPath();ctx.arc(p.x,p.y,5,0,6.28);ctx.fill();}
   else if(p.kind==='acorn'){ctx.fillStyle='#8a5a2a';ctx.beginPath();ctx.arc(p.x,p.y,5,0,6.28);ctx.fill();ctx.fillStyle='#5a3a18';ctx.fillRect(p.x-4,p.y-6,8,3);}
   else if(p.kind==='coin'){ctx.fillStyle='#ffd24a';ctx.beginPath();ctx.arc(p.x,p.y,5,0,6.28);ctx.fill();ctx.strokeStyle='#b8860b';ctx.lineWidth=1.5;ctx.stroke();}
   else if(p.kind==='dart'){ctx.strokeStyle='#e0692a';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x+9,p.y);ctx.stroke();}
   else if(p.kind==='feather'){ctx.fillStyle='#c9a877';ctx.beginPath();ctx.ellipse(p.x,p.y,6,3,0,0,6.28);ctx.fill();}
   else if(p.kind==='sting'){ctx.fillStyle='#ffce4a';ctx.beginPath();ctx.arc(p.x,p.y,3.5,0,6.28);ctx.fill();}
-  else{ctx.fillStyle='#d9e86a';ctx.beginPath();ctx.arc(p.x,p.y,4.5,0,6.28);ctx.fill();}}
+  else{ctx.fillStyle='#d9e86a';ctx.beginPath();ctx.arc(p.x,p.y,4.5,0,6.28);ctx.fill();}
+  ctx.restore();}
 function drawParticle(p){const a=1-p.t/p.life;ctx.globalAlpha=Math.max(0,a);
-  if(p.leaf){ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.rot);ctx.fillStyle=p.col;ctx.beginPath();ctx.ellipse(0,0,p.r,p.r*.5,0,0,6.28);ctx.fill();ctx.restore();}
+  if(p.ring){const rr=p.r+(p.t/p.life)*p.r*1.8;ctx.strokeStyle=p.col;ctx.lineWidth=2.5*a+.5;ctx.beginPath();ctx.arc(p.x,p.y,rr,0,6.28);ctx.stroke();}
+  else if(p.leaf){ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.rot);ctx.fillStyle=p.col;ctx.beginPath();ctx.ellipse(0,0,p.r,p.r*.5,0,0,6.28);ctx.fill();ctx.restore();}
   else{ctx.fillStyle=p.col;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,6.28);ctx.fill();}ctx.globalAlpha=1;}
 let rain=[];
 function drawRain(){if(rain.length===0)for(let i=0;i<60;i++)rain.push({x:Math.random()*viewW,y:Math.random()*viewH,s:6+Math.random()*8});
