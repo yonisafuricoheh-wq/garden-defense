@@ -641,18 +641,18 @@ function drawScene(){
   ctx.fillStyle=sky;ctx.fillRect(0,0,viewW,viewH);
   // ---- sun / moon ----
   drawSunMoon(wx,horizon);
-  // ---- clouds ----
-  if(!wx.dark){ctx.globalAlpha=.9;for(const c of scene.clouds)drawCloud(c.x*viewW,c.y*horizon+20,c.s*(cell*.5));ctx.globalAlpha=1;}
+  // ---- clouds (slow drift) ----
+  if(!wx.dark){ctx.globalAlpha=.9;for(const c of scene.clouds){const cx=(((c.x+G.time*0.004)%1.15)-.075)*viewW;drawCloud(cx,c.y*horizon+20,c.s*(cell*.5));}ctx.globalAlpha=1;}
   // ---- distant hills behind the bed ----
   drawHills(b,horizon);
   // ---- soft ground shadow under the bed ----
   ctx.fillStyle='rgba(0,0,0,.2)';roundRect(boardX-10,boardY+8,boardW+20,boardH+14,20);ctx.fill();
   // ---- lanes ----
   for(let r=0;r<ROWS;r++){const y=boardY+r*cell;const g=ctx.createLinearGradient(0,y,0,y+cell);
-    g.addColorStop(0,r%2?shade(b.g1,.96):shade(b.g1,1.03));g.addColorStop(1,r%2?shade(b.g2,.92):b.g2);ctx.fillStyle=g;ctx.fillRect(boardX,y,boardW,cell);
-    // dirt walking path
-    const dg=ctx.createLinearGradient(0,y+cell*.3,0,y+cell*.7);dg.addColorStop(0,shade(b.dirt,.9));dg.addColorStop(.5,b.dirt);dg.addColorStop(1,shade(b.dirt,.82));
-    ctx.fillStyle=dg;ctx.globalAlpha=.55;roundRect(boardX,y+cell*.32,boardW,cell*.36,cell*.16);ctx.fill();ctx.globalAlpha=1;}
+    g.addColorStop(0,r%2?shade(b.g1,1.0):shade(b.g1,1.08));g.addColorStop(1,r%2?shade(b.g2,.96):shade(b.g2,1.02));ctx.fillStyle=g;ctx.fillRect(boardX,y,boardW,cell);
+    // narrow dirt walking trail (keeps the grass green and readable)
+    const dg=ctx.createLinearGradient(0,y+cell*.36,0,y+cell*.64);dg.addColorStop(0,shade(b.dirt,.92));dg.addColorStop(.5,b.dirt);dg.addColorStop(1,shade(b.dirt,.84));
+    ctx.fillStyle=dg;ctx.globalAlpha=.4;roundRect(boardX,y+cell*.38,boardW,cell*.24,cell*.11);ctx.fill();ctx.globalAlpha=1;}
   // grass tufts + tiny flowers texture
   drawTufts(b);
   ctx.strokeStyle='rgba(20,45,15,.1)';ctx.lineWidth=1;
@@ -663,6 +663,8 @@ function drawScene(){
   drawPlanter();
   // ---- foreground bushes filling the bottom ----
   drawForeground(b);
+  // ---- ambient pollen motes for life ----
+  if(!wx.dark)drawMotes();
   // ---- vignette ----
   const vg=ctx.createRadialGradient(viewW/2,viewH*.45,viewH*.3,viewW/2,viewH*.5,viewH*.75);
   vg.addColorStop(0,'rgba(0,0,0,0)');vg.addColorStop(1,'rgba(0,0,0,.22)');ctx.fillStyle=vg;ctx.fillRect(0,0,viewW,viewH);
@@ -673,9 +675,22 @@ function drawSunMoon(wx,horizon){
     ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,cell*1.4,0,6.28);ctx.fill();
     ctx.fillStyle='#eef2ff';ctx.beginPath();ctx.arc(x,y,cell*.32,0,6.28);ctx.fill();
     ctx.fillStyle=wx.sky?shade(wx.sky,1.14):'#101a34';ctx.beginPath();ctx.arc(x+cell*.14,y-cell*.08,cell*.28,0,6.28);ctx.fill();return; }
+  // rotating rays
+  ctx.save();ctx.translate(x,y);ctx.rotate(G.time*0.15);ctx.fillStyle='rgba(255,238,150,.18)';
+  for(let i=0;i<12;i++){ctx.rotate(6.2832/12);ctx.beginPath();ctx.moveTo(cell*.45,-cell*.12);ctx.lineTo(cell*1.6,0);ctx.lineTo(cell*.45,cell*.12);ctx.closePath();ctx.fill();}
+  ctx.restore();
   const g=ctx.createRadialGradient(x,y,2,x,y,cell*1.7);g.addColorStop(0,'rgba(255,244,180,.85)');g.addColorStop(.5,'rgba(255,230,140,.35)');g.addColorStop(1,'rgba(255,230,140,0)');
   ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,cell*1.7,0,6.28);ctx.fill();
   ctx.fillStyle='#fff2b0';ctx.beginPath();ctx.arc(x,y,cell*.36,0,6.28);ctx.fill();
+}
+function drawMotes(){
+  const n=14;ctx.fillStyle='rgba(255,250,190,.5)';
+  for(let i=0;i<n;i++){const t=G.time*.12+i*1.7;
+    const x=((i/n+Math.sin(t)*.06+t*.02)%1)*viewW;
+    const y=boardY-cell + (Math.sin(t*1.3+i)*.5+.5)*(boardH+cell*1.4);
+    const a=.25+.25*Math.sin(t*2+i);ctx.globalAlpha=Math.max(0,a);
+    ctx.beginPath();ctx.arc(x,y,1.6+Math.sin(t+i)*.8,0,6.28);ctx.fill();}
+  ctx.globalAlpha=1;
 }
 function drawCloud(x,y,s){ctx.fillStyle='rgba(255,255,255,.85)';
   ctx.beginPath();ctx.ellipse(x,y,s*1.1,s*.6,0,0,6.28);ctx.ellipse(x-s*.7,y+s*.15,s*.7,s*.45,0,0,6.28);
