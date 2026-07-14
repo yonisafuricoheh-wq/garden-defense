@@ -624,19 +624,104 @@ function draw(){
 const BIOMES=[{g1:'#84cf5c',g2:'#5aa03e',dirt:'#c9a879'},{g1:'#6fc0a0',g2:'#3f9877',dirt:'#b8a06a'},
   {g1:'#a9c46a',g2:'#7a9a44',dirt:'#cbb37a'},{g1:'#6a8fb0',g2:'#456d8f',dirt:'#9fae86'}];
 let flowers=[];
+const scene={clouds:[],hills:[],bushes:[],tufts:[],birds:[]};
+function seedScene(){
+  scene.clouds=[{x:.18,y:.05,s:1},{x:.66,y:.10,s:.8},{x:.42,y:.03,s:.6},{x:.85,y:.07,s:.5}];
+  scene.bushes=[];for(let i=0;i<9;i++)scene.bushes.push({x:i/8+(Math.random()-.5)*.06,s:.85+Math.random()*.7,k:i%3});
+  scene.tufts=[];for(let i=0;i<50;i++)scene.tufts.push({x:Math.random(),y:Math.random(),s:.5+Math.random()*.9,f:Math.random()<.18});
+  scene.birds=[{x:.25,y:.14,ph:0},{x:.4,y:.11,ph:1.5}];
+}
 function drawScene(){
   const b=BIOMES[G.biome],wx=WEATHER[G.weatherIdx];
-  const sky=ctx.createLinearGradient(0,0,0,viewH);sky.addColorStop(0,shade(wx.sky||b.g1,1.05));sky.addColorStop(1,shade(b.g2,.8));
+  // ---- sky ----
+  const horizon=boardY-6;
+  const sky=ctx.createLinearGradient(0,0,0,viewH);
+  const skyTop=wx.dark?'#101a34':(wx.sky?shade(wx.sky,1.14):'#bfe6f0');
+  sky.addColorStop(0,skyTop);sky.addColorStop(Math.max(.05,horizon/viewH*.75),shade(b.g1,1.06));sky.addColorStop(1,shade(b.g2,.82));
   ctx.fillStyle=sky;ctx.fillRect(0,0,viewW,viewH);
-  ctx.fillStyle='rgba(0,0,0,.18)';roundRect(boardX-4,boardY+6,boardW+8,boardH+6,16);ctx.fill();
+  // ---- sun / moon ----
+  drawSunMoon(wx,horizon);
+  // ---- clouds ----
+  if(!wx.dark){ctx.globalAlpha=.9;for(const c of scene.clouds)drawCloud(c.x*viewW,c.y*horizon+20,c.s*(cell*.5));ctx.globalAlpha=1;}
+  // ---- distant hills behind the bed ----
+  drawHills(b,horizon);
+  // ---- soft ground shadow under the bed ----
+  ctx.fillStyle='rgba(0,0,0,.2)';roundRect(boardX-10,boardY+8,boardW+20,boardH+14,20);ctx.fill();
+  // ---- lanes ----
   for(let r=0;r<ROWS;r++){const y=boardY+r*cell;const g=ctx.createLinearGradient(0,y,0,y+cell);
-    g.addColorStop(0,r%2?shade(b.g1,.94):b.g1);g.addColorStop(1,r%2?shade(b.g2,.94):b.g2);ctx.fillStyle=g;ctx.fillRect(boardX,y,boardW,cell);
-    ctx.fillStyle=b.dirt;ctx.globalAlpha=.5;roundRect(boardX,y+cell*.32,boardW,cell*.36,cell*.16);ctx.fill();ctx.globalAlpha=1;}
-  ctx.strokeStyle='rgba(20,45,15,.14)';ctx.lineWidth=1;
+    g.addColorStop(0,r%2?shade(b.g1,.96):shade(b.g1,1.03));g.addColorStop(1,r%2?shade(b.g2,.92):b.g2);ctx.fillStyle=g;ctx.fillRect(boardX,y,boardW,cell);
+    // dirt walking path
+    const dg=ctx.createLinearGradient(0,y+cell*.3,0,y+cell*.7);dg.addColorStop(0,shade(b.dirt,.9));dg.addColorStop(.5,b.dirt);dg.addColorStop(1,shade(b.dirt,.82));
+    ctx.fillStyle=dg;ctx.globalAlpha=.55;roundRect(boardX,y+cell*.32,boardW,cell*.36,cell*.16);ctx.fill();ctx.globalAlpha=1;}
+  // grass tufts + tiny flowers texture
+  drawTufts(b);
+  ctx.strokeStyle='rgba(20,45,15,.1)';ctx.lineWidth=1;
   for(let c=1;c<COLS;c++){ctx.beginPath();ctx.moveTo(boardX+c*cell,boardY);ctx.lineTo(boardX+c*cell,boardY+boardH);ctx.stroke();}
   for(const f of flowers)drawDeco(f);
   drawHome();drawPortal();
-  ctx.strokeStyle='rgba(30,55,20,.4)';ctx.lineWidth=3;roundRect(boardX,boardY,boardW,boardH,14);ctx.stroke();
+  // ---- wooden raised-bed frame ----
+  drawPlanter();
+  // ---- foreground bushes filling the bottom ----
+  drawForeground(b);
+  // ---- vignette ----
+  const vg=ctx.createRadialGradient(viewW/2,viewH*.45,viewH*.3,viewW/2,viewH*.5,viewH*.75);
+  vg.addColorStop(0,'rgba(0,0,0,0)');vg.addColorStop(1,'rgba(0,0,0,.22)');ctx.fillStyle=vg;ctx.fillRect(0,0,viewW,viewH);
+}
+function drawSunMoon(wx,horizon){
+  const x=viewW*.8,y=horizon*.34;
+  if(wx.dark){ const g=ctx.createRadialGradient(x,y,2,x,y,cell*1.4);g.addColorStop(0,'rgba(230,235,255,.5)');g.addColorStop(1,'rgba(230,235,255,0)');
+    ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,cell*1.4,0,6.28);ctx.fill();
+    ctx.fillStyle='#eef2ff';ctx.beginPath();ctx.arc(x,y,cell*.32,0,6.28);ctx.fill();
+    ctx.fillStyle=wx.sky?shade(wx.sky,1.14):'#101a34';ctx.beginPath();ctx.arc(x+cell*.14,y-cell*.08,cell*.28,0,6.28);ctx.fill();return; }
+  const g=ctx.createRadialGradient(x,y,2,x,y,cell*1.7);g.addColorStop(0,'rgba(255,244,180,.85)');g.addColorStop(.5,'rgba(255,230,140,.35)');g.addColorStop(1,'rgba(255,230,140,0)');
+  ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,cell*1.7,0,6.28);ctx.fill();
+  ctx.fillStyle='#fff2b0';ctx.beginPath();ctx.arc(x,y,cell*.36,0,6.28);ctx.fill();
+}
+function drawCloud(x,y,s){ctx.fillStyle='rgba(255,255,255,.85)';
+  ctx.beginPath();ctx.ellipse(x,y,s*1.1,s*.6,0,0,6.28);ctx.ellipse(x-s*.7,y+s*.15,s*.7,s*.45,0,0,6.28);
+  ctx.ellipse(x+s*.7,y+s*.12,s*.75,s*.5,0,0,6.28);ctx.ellipse(x+s*.1,y-s*.3,s*.6,s*.5,0,0,6.28);ctx.fill();}
+function drawHills(b,horizon){
+  for(let L=0;L<2;L++){const yBase=horizon-6+L*8, amp=cell*(L?.5:.8), col=L?shade(b.g2,.9):shade(b.g2,.78);
+    ctx.fillStyle=col;ctx.beginPath();ctx.moveTo(-10,yBase+amp);
+    for(let x=-10;x<=viewW+10;x+=viewW/4){ctx.quadraticCurveTo(x+viewW/8,yBase-amp*(L?.5:1),x+viewW/4,yBase);}
+    ctx.lineTo(viewW+10,horizon+40);ctx.lineTo(-10,horizon+40);ctx.closePath();ctx.fill();}
+}
+function drawTufts(b){
+  for(const t of scene.tufts){const x=boardX+t.x*boardW,y=boardY+t.y*boardH;
+    if(t.f){ctx.fillStyle=['#ff8fb1','#ffd94a','#fff0f5','#c98fff'][(t.x*100|0)%4];ctx.beginPath();ctx.arc(x,y,2.2*t.s,0,6.28);ctx.fill();continue;}
+    ctx.strokeStyle=shade(b.g1,.7);ctx.lineWidth=1.4;ctx.lineCap='round';const h=4*t.s;
+    ctx.beginPath();ctx.moveTo(x,y);ctx.quadraticCurveTo(x-2,y-h*.7,x-3,y-h);ctx.moveTo(x,y);ctx.lineTo(x,y-h*1.1);ctx.moveTo(x,y);ctx.quadraticCurveTo(x+2,y-h*.7,x+3,y-h);ctx.stroke();}
+}
+function drawPlanter(){
+  const t=Math.max(6,cell*.14), x=boardX-t, y=boardY-t, w=boardW+t*2, h=boardH+t*2;
+  ctx.save();
+  // outer wood
+  const wood=ctx.createLinearGradient(0,y,0,y+h);wood.addColorStop(0,'#b98a54');wood.addColorStop(1,'#8a5f34');
+  ctx.fillStyle=wood;roundRect(x,y,w,h,t*1.1);ctx.fill();
+  // inner cut (hole to the grass) via even-odd
+  ctx.fillStyle=wood;ctx.beginPath();roundRect(x,y,w,h,t*1.1);roundRect(boardX,boardY,boardW,boardH,10);ctx.fill('evenodd');
+  // top highlight + plank lines
+  ctx.strokeStyle='rgba(255,240,200,.35)';ctx.lineWidth=2;roundRect(x+2,y+2,w-4,h-4,t);ctx.stroke();
+  ctx.strokeStyle='rgba(80,50,20,.4)';ctx.lineWidth=1.5;
+  for(let px=x+t*1.4;px<x+w-t;px+=t*1.4){ctx.beginPath();ctx.moveTo(px,y+2);ctx.lineTo(px,y+t-2);ctx.moveTo(px,y+h-t+2);ctx.lineTo(px,y+h-2);ctx.stroke();}
+  // corner posts
+  ctx.fillStyle='#9c6f3f';for(const cx of[x,x+w-t*1.3])for(const cy of[y,y+h-t*1.3]){roundRect(cx,cy,t*1.3,t*1.3,3);ctx.fill();
+    ctx.fillStyle='rgba(255,240,200,.3)';roundRect(cx+2,cy+2,t*1.3-4,t*.4,2);ctx.fill();ctx.fillStyle='#9c6f3f';}
+  ctx.restore();
+  // inner shadow of the bed
+  ctx.strokeStyle='rgba(30,45,20,.28)';ctx.lineWidth=4;roundRect(boardX+1,boardY+1,boardW-2,boardH-2,10);ctx.stroke();
+}
+function drawForeground(b){
+  const baseY=boardY+boardH+Math.max(6,cell*.18);
+  for(const bu of scene.bushes){const x=bu.x*viewW,s=cell*bu.s;
+    const col=[shade(b.g2,.7),shade(b.g1,.72),shade(b.g2,.6)][bu.k];
+    ctx.fillStyle=col;ctx.beginPath();
+    ctx.arc(x-s*.5,baseY,s*.55,0,6.28);ctx.arc(x,baseY-s*.3,s*.62,0,6.28);ctx.arc(x+s*.55,baseY,s*.5,0,6.28);ctx.fill();
+    // little berries/flowers
+    if(bu.k===1){ctx.fillStyle='#ffd94a';for(let i=0;i<3;i++){ctx.beginPath();ctx.arc(x-s*.3+i*s*.3,baseY-s*.25,2.5,0,6.28);ctx.fill();}}}
+  // grass blade fringe along the front
+  ctx.strokeStyle=shade(b.g2,.68);ctx.lineWidth=2;ctx.lineCap='round';
+  for(let x=0;x<viewW;x+=7){const h=8+((x*7)%11);ctx.beginPath();ctx.moveTo(x,baseY+2);ctx.quadraticCurveTo(x+2,baseY-h*.6,x+((x/13|0)%2?3:-3),baseY-h);ctx.stroke();}
 }
 function drawDeco(f){const x=boardX+f.x*boardW,y=boardY+f.y*boardH;
   if(f.k==='pebble'){ctx.fillStyle='rgba(150,150,140,.5)';ctx.beginPath();ctx.ellipse(x,y,f.r,f.r*.7,0,0,6.28);ctx.fill();return;}
@@ -655,10 +740,14 @@ function drawPortal(){const x=boardX+boardW+2,cy=boardY+boardH/2;ctx.save();ctx.
 
 function drawCreature(g,art,px,py,s,t,atk,pop=1,hurt=0){
   g.save();g.translate(px,py);
-  g.fillStyle='rgba(0,0,0,.2)';g.beginPath();g.ellipse(0,s*.85,s*.85,s*.28,0,0,6.28);g.fill();
+  // soft contact shadow on the ground
+  g.fillStyle='rgba(0,0,0,.22)';g.beginPath();g.ellipse(0,s*.85,s*.88,s*.3,0,0,6.28);g.fill();
   const sq=pop>1?pop:1;g.scale(sq,1/(sq*.5+.5));
   const br=1+Math.sin(t*2)*.03;g.scale(br,1/(br*.4+.6));
+  // soft dark halo => creatures pop off the grass (premium sticker look)
+  g.shadowColor='rgba(18,28,12,.55)';g.shadowBlur=s*.3;g.shadowOffsetY=s*.06;
   art(g,s,t,atk);
+  g.shadowColor='transparent';g.shadowBlur=0;g.shadowOffsetY=0;
   if(hurt>0){g.globalAlpha=Math.min(.5,hurt*.5);g.fillStyle='#fff';g.beginPath();g.ellipse(0,0,s*.92,s*.82,0,0,6.28);g.fill();g.globalAlpha=1;}
   g.restore();
 }
@@ -838,7 +927,7 @@ function loseLevel(){
 /* ---------- boot ---------- */
 function seedFlowers(){flowers=[];for(let i=0;i<22;i++)flowers.push({x:Math.random(),y:Math.random(),r:3+Math.random()*4,rot:Math.random()*6,
   c:['#ff8fb1','#ffd94a','#fff0f5','#ff6f61','#c98fff'][i%5],k:Math.random()<.25?'pebble':'flower'});}
-function boot(){resize();seedFlowers();hideGameUI(true);showMenu();requestAnimationFrame(loop);}
+function boot(){resize();seedFlowers();seedScene();hideGameUI(true);showMenu();requestAnimationFrame(loop);}
 window.addEventListener('load',boot);
 </script>
 </body>
