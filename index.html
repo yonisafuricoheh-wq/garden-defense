@@ -6,6 +6,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2a3d1e">
 <title>הגן הקטן</title>
+<!-- WebRTC P2P (real multiplayer). Loads async; if it fails, multiplayer silently uses the bot. -->
+<script defer src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <style>
   :root{ --gold:#ffce4a; --ui:rgba(24,38,18,.86); }
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;
@@ -1405,11 +1407,61 @@ function layoutField(F,x,y,w,h){ F.cell=Math.floor(Math.min((w-6)/MP_COLS,(h-6)/
 
 /* ---------- TRANSPORT LAYER (abstraction) ----------
    Every state change is a discrete action routed through transport.send().
-   The bot emits identical actions. SIMULATED now = applied locally; Milestone 5
-   would serialize+send over the network here, with the remote peer calling applyAction. */
+   Bot AND the real network peer both emit identical actions. In a NET match your
+   own actions are applied locally AND forwarded to the peer (Milestone 5). */
 const transport = {
-  send(action){ applyAction(action); }   // SIMULATED (local). Real net: encode + datachannel.send here.
+  send(action){
+    const ok = applyAction(action);
+    // forward only MY actions to the real peer (bot/opp actions are local-only or arrive from the peer)
+    if(ok && MP.mode==='net' && action.by==='me' && Net.connected) Net.send({k:'act',a:action});
+    return ok;
+  }
 };
+
+/* ---------- REAL NETWORK LAYER (Milestone 5) — WebRTC via PeerJS cloud signaling ----------
+   Serverless P2P: no backend to host. Invite-friend = share a room code; the friend
+   connects peer-to-peer. Everything degrades to the bot if the library/network is
+   unavailable, so the game is ALWAYS playable. This is the ONLY networking code;
+   the game logic above is transport-agnostic. */
+const Net = {
+  peer:null, conn:null, connected:false, role:null,
+  cbData:null, cbOpen:null, cbClose:null,
+  avail(){ return typeof Peer !== 'undefined'; },
+  _id(){ return 'gdn-'+Math.random().toString(36).slice(2,7); },
+  _bind(c){ this.conn=c;
+    c.on('open',()=>{ this.connected=true; this.cbOpen&&this.cbOpen(); });
+    c.on('data',d=>{ this.cbData&&this.cbData(d); });
+    c.on('close',()=>{ if(this.connected){ this.connected=false; this.cbClose&&this.cbClose('closed'); } });
+    c.on('error',()=>{ this.cbClose&&this.cbClose('conn-error'); });
+  },
+  host(onCode,onOpen,onData,onClose,fixedId){
+    if(!this.avail()){ onClose&&onClose('no-lib'); return; }
+    this.role='host'; this.cbOpen=onOpen; this.cbData=onData; this.cbClose=onClose;
+    try{ this.peer=new Peer(fixedId||this._id()); }catch(e){ onClose&&onClose('no-lib'); return; }
+    this.peer.on('open',id=>onCode&&onCode(id));
+    this.peer.on('connection',c=>{ if(this.conn) return; this._bind(c); });
+    this.peer.on('error',()=>onClose&&onClose('peer-error'));   // e.g. 'unavailable-id' if lobby taken
+  },
+  join(code,onOpen,onData,onClose){
+    if(!this.avail()){ onClose&&onClose('no-lib'); return; }
+    this.role='guest'; this.cbOpen=onOpen; this.cbData=onData; this.cbClose=onClose;
+    try{ this.peer=new Peer(); }catch(e){ onClose&&onClose('no-lib'); return; }
+    this.peer.on('open',()=>{ try{ this._bind(this.peer.connect(code,{reliable:true})); }catch(e){ onClose&&onClose('connect-fail'); } });
+    this.peer.on('error',()=>onClose&&onClose('peer-error'));
+  },
+  send(o){ if(this.conn&&this.connected){ try{ this.conn.send(o); }catch(e){} } },
+  close(){ try{ this.conn&&this.conn.close(); }catch(e){} try{ this.peer&&this.peer.destroy(); }catch(e){}
+    this.conn=null; this.peer=null; this.connected=false; this.role=null; }
+};
+/* incoming peer messages: their actions (remapped to my 'opp') + their loss notice */
+function mpOnNetData(d){
+  if(!MP.active) return;
+  if(d.k==='act'){ applyAction({...d.a, by:'opp'}); }   // their 'me' == my 'opp'
+  else if(d.k==='result'){ if(!MP.over) mpEnd(true,true); }  // peer says they lost => I won
+}
+function mpOnNetClose(reason){
+  if(MP.active && !MP.over){ MP.mode='bot'; toast('היריב התנתק — ממשיך מול בוט 🤖'); }
+}
 function applyAction(a){
   // a.by = who acts ('me'|'opp').  place -> own field.  launch -> opponent field.
   const actor = a.by==='me'?MP.me:MP.opp;
@@ -1459,10 +1511,12 @@ function mpUpdate(dt){
   MP.me.sun=Math.min(999,MP.me.sun+MP_REGEN*dt);
   MP.opp.sun=Math.min(999,MP.opp.sun+MP_REGEN*dt);
   if(MP.me.atkCd>0)MP.me.atkCd-=dt; if(MP.opp.atkCd>0)MP.opp.atkCd-=dt;
-  mpBotTick(dt);
+  if(MP.mode==='bot') mpBotTick(dt);        // net matches get opponent actions from the peer
   mpStepField(MP.me,dt); mpStepField(MP.opp,dt);
   mpSyncUI();
-  if(MP.me.hp<=0||MP.opp.hp<=0) mpEnd(MP.opp.hp<=0);
+  // authority: each client decides only when ITS OWN garden falls (no double-win).
+  if(MP.me.hp<=0){ if(MP.mode==='net'&&Net.connected) Net.send({k:'result'}); mpEnd(false); return; }
+  if(MP.mode==='bot' && MP.opp.hp<=0){ mpEnd(true); }
 }
 function mpFindTarget(F,d){ let best=null,bx=1e9;
   for(const e of F.enemies){ if(!e.alive||e.underground)continue;
@@ -1609,49 +1663,121 @@ canvas.addEventListener('pointerdown',ev=>{ if(!MP.active||MP.over)return;
 });
 
 /* ---------- SCREENS ---------- */
+let mpMMTimer=null, mpMMDots=null;
+function mpClearTimers(){ if(mpMMTimer){clearTimeout(mpMMTimer);mpMMTimer=null;} if(mpMMDots){clearInterval(mpMMDots);mpMMDots=null;} }
 function mpShowIntro(){
-  G.phase='menu'; ov.classList.remove('hidden'); hideGameUI(true);
-  const d=getDeck();
+  G.phase='menu'; ov.classList.remove('hidden'); hideGameUI(true); mpClearTimers();
+  const d=getDeck(); const online=(typeof Peer!=='undefined');
   ov.innerHTML=`<h1 style="font-size:26px">⚔️ מולטיפלייר</h1>
     <div class="panel"><div class="sub">קרב 1 על 1 בזמן אמת.<br><b>הגן</b> על הגינה שלך והשמד את גינת היריב.<br>כל שמש שמשקיעים בתקיפה — לא הולכת להגנה!</div>
-    <div class="sub" style="font-size:12px;opacity:.8">החפיסה שלך: ${d.animals.length} חיות + ${d.bugs.length} חרקים · היריב כרגע בוט מדומה 🤖</div>
+    <div class="sub" style="font-size:12px;opacity:.8">החפיסה שלך: ${d.animals.length} חיות + ${d.bugs.length} חרקים · ${online?'רשת מוכנה 🌐':'לא מקוון — נשחק מול בוט 🤖'}</div>
     <div class="row"><button class="btn" id="mpQuick">🎲 יריב אקראי</button></div>
-    <div class="row"><button class="btn sec" id="mpFriend">👥 הזמן חבר (בקרוב)</button></div></div>
+    <div class="row"><button class="btn sec" id="mpFriend">👥 הזמן חבר</button>
+      <button class="btn sec" id="mpBotOnly">🤖 מול בוט</button></div></div>
     <div class="row"><button class="btn sec" id="mpBack">◀ תפריט</button></div>`;
-  document.getElementById('mpQuick').onclick=()=>mpMatchmaking();
-  document.getElementById('mpFriend').onclick=()=>toast('הזמנת חבר תתווסף ב-Milestone 5 (רשת אמיתית)');
+  document.getElementById('mpQuick').onclick=mpRandom;
+  document.getElementById('mpFriend').onclick=mpHostRoom;
+  document.getElementById('mpBotOnly').onclick=()=>mpStart('bot');
   document.getElementById('mpBack').onclick=showMenu;
 }
-function mpMatchmaking(){
+function mpSearchScreen(txt,onCancel){
   ov.innerHTML=`<h1 style="font-size:24px">🔎 מחפש יריב...</h1>
-    <div class="panel"><div class="sub" id="mmDots">מתחבר לשחקן זמין באותה רשת…</div></div>`;
-  let n=0; const iv=setInterval(()=>{document.getElementById('mmDots').textContent='מתחבר לשחקן זמין…'+'•'.repeat(n%4);n++;},300);
-  setTimeout(()=>{ clearInterval(iv); mpStart(); }, 1600+Math.random()*900);   // SIMULATED match found
+    <div class="panel"><div class="sub" id="mmDots">${txt}</div>
+    <div class="row"><button class="btn sec" id="mmCancel">ביטול</button></div></div>`;
+  let n=0; mpMMDots=setInterval(()=>{const e=document.getElementById('mmDots');if(e)e.textContent=txt+' '+'•'.repeat(n++%4);},300);
+  document.getElementById('mmCancel').onclick=()=>{ mpClearTimers(); Net.close(); mpShowIntro(); };
 }
-function mpStart(){
+// RANDOM: try to connect to a shared lobby; if nobody hosts, host it; fall back to bot after a while.
+function mpRandom(){
+  if(typeof Peer==='undefined'){ mpFakeSearchThenBot(); return; }
+  mpSearchScreen('מחפש יריב אקראי…');
+  const LOBBY='gardendefense-lobby-v1';
+  let settled=false;
+  const done=(fn)=>{ if(settled)return; settled=true; mpClearTimers(); fn(); };
+  // first try to JOIN the lobby (someone already waiting)
+  Net.join(LOBBY,
+    ()=>done(()=>mpStart('net','guest')),
+    mpOnNetData,
+    ()=>{ // couldn't join -> become the host of the lobby and wait
+      if(settled)return; Net.close();
+      Net.host(()=>{}, ()=>done(()=>mpStart('net','host')), mpOnNetData, ()=>{}, LOBBY);
+      // NOTE: host() below is overloaded to accept a fixed id as 5th arg
+    });
+  // overall timeout -> silent bot fallback so the player always plays
+  mpMMTimer=setTimeout(()=>done(()=>{ Net.close(); toast('לא נמצא יריב — משחק מול בוט 🤖'); mpStart('bot'); }), 9000);
+}
+function mpFakeSearchThenBot(){ mpSearchScreen('מחבר…'); mpMMTimer=setTimeout(()=>{ mpClearTimers(); mpStart('bot'); },1500); }
+// INVITE FRIEND: host a room, show a code + shareable link, wait for the friend to join.
+function mpHostRoom(){
+  if(typeof Peer==='undefined'){ toast('אין חיבור רשת — נשחק מול בוט'); mpStart('bot'); return; }
+  mpClearTimers();
+  ov.innerHTML=`<h1 style="font-size:22px">👥 הזמן חבר</h1>
+    <div class="panel"><div class="sub" id="hrStat">יוצר חדר…</div>
+    <div id="hrCode" style="display:none"><div class="sub">שלח לחבר את הקוד או הקישור:</div>
+      <div class="deckDesc" id="hrCodeVal" style="font-size:18px;font-weight:800;letter-spacing:1px;cursor:pointer"></div>
+      <div class="sub" style="font-size:11px;word-break:break-all" id="hrLink"></div>
+      <button class="btn sec" id="hrCopy" style="font-size:14px;padding:9px 20px">📋 העתק קישור</button></div>
+    <div class="row"><button class="btn sec" id="hrBack">◀ חזרה</button>
+      <button class="btn sec" id="hrBot">🤖 מול בוט</button></div></div>`;
+  document.getElementById('hrBack').onclick=()=>{ mpClearTimers(); Net.close(); mpShowIntro(); };
+  document.getElementById('hrBot').onclick=()=>{ mpClearTimers(); Net.close(); mpStart('bot'); };
+  let gotCode=false;
+  Net.host(code=>{ gotCode=true;
+    const short=code.replace('gdn-','').toUpperCase();
+    const link=location.origin+location.pathname+'?join='+code;
+    const st=document.getElementById('hrStat'); if(st)st.textContent='ממתין שהחבר יצטרף…';
+    const cd=document.getElementById('hrCode'); if(cd)cd.style.display='';
+    const cv=document.getElementById('hrCodeVal'); if(cv)cv.textContent=short;
+    const ln=document.getElementById('hrLink'); if(ln)ln.textContent=link;
+    const cp=document.getElementById('hrCopy'); if(cp)cp.onclick=()=>{ try{navigator.clipboard.writeText(link);toast('הקישור הועתק!');}catch(e){toast(link);} };
+  }, ()=>mpStart('net','host'), mpOnNetData, reason=>{
+    const st=document.getElementById('hrStat'); if(st)st.innerHTML='בעיית רשת — לחץ <b>🤖 מול בוט</b> כדי לשחק.';
+  });
+  // if the signaling server never answers, don't hang — offer the bot
+  mpMMTimer=setTimeout(()=>{ if(!gotCode){ const st=document.getElementById('hrStat'); if(st)st.innerHTML='הרשת לא זמינה כרגע — לחץ <b>🤖 מול בוט</b> כדי לשחק.'; } },9000);
+}
+function mpJoinRoom(code){
+  if(typeof Peer==='undefined'){ mpStart('bot'); return; }
+  mpSearchScreen('מתחבר לחדר של החבר…');
+  let settled=false; const done=f=>{if(settled)return;settled=true;mpClearTimers();f();};
+  Net.join(code, ()=>done(()=>mpStart('net','guest')), mpOnNetData,
+    ()=>done(()=>{ toast('לא הצלחתי להתחבר — משחק מול בוט 🤖'); mpStart('bot'); }));
+  mpMMTimer=setTimeout(()=>done(()=>{ Net.close(); toast('אין תגובה — משחק מול בוט 🤖'); mpStart('bot'); }),9000);
+}
+function mpStart(mode,role){
+  mpClearTimers();
   const my=getDeck();
-  MP={active:true,over:false, me:mpField('me'), opp:mpField('opp'),
-      myDeck:my, oppDeck:getDeck(), sel:null, botT:1.2};
+  MP={active:true,over:false, mode:mode||'bot', role:role||null,
+      me:mpField('me'), opp:mpField('opp'), myDeck:my, oppDeck:getDeck(), sel:null, botT:1.2};
+  if(MP.mode==='net'){ Net.cbData=mpOnNetData; Net.cbClose=mpOnNetClose; }
   ov.classList.add('hidden'); hideGameUI(true);
   document.getElementById('mpUI').classList.add('on');
   document.getElementById('mpTop').classList.add('on');
   document.getElementById('mpExit').onclick=()=>mpQuit();
-  mpBuildBars(); mpSyncUI(); toast('הקרב התחיל! הגן ותקוף בו-זמנית');
+  mpBuildBars(); mpSyncUI();
+  toast(MP.mode==='net'?'יריב אמיתי נמצא! 🎮':'הקרב התחיל! הגן ותקוף בו-זמנית');
 }
-function mpQuit(){ MP.active=false;
+function mpQuit(){ MP.active=false; if(MP.mode==='net')Net.close();
   document.getElementById('mpUI').classList.remove('on'); document.getElementById('mpTop').classList.remove('on');
   showMenu(); }
-function mpEnd(youWon){ MP.over=true; MP.active=false;
+function mpEnd(youWon,fromPeer){ MP.over=true; MP.active=false;
+  if(MP.mode==='net' && !fromPeer && youWon){} // win already signaled by peer's result; nothing to send
+  if(MP.mode==='net') setTimeout(()=>Net.close(),400);
   document.getElementById('mpUI').classList.remove('on'); document.getElementById('mpTop').classList.remove('on');
   ov.classList.remove('hidden');
   ov.innerHTML=`<h1>${youWon?'🏆 ניצחת!':'💀 הפסדת'}</h1>
     <div class="panel"><div class="sub">${youWon?'פרצת את גינת היריב!':'היריב פרץ את הגינה שלך.'}</div>
     <div class="row"><button class="btn" id="mpAgain">שחק שוב 🔄</button><button class="btn sec" id="mpMenu">◀ תפריט</button></div></div>`;
-  document.getElementById('mpAgain').onclick=()=>mpMatchmaking();
+  document.getElementById('mpAgain').onclick=()=>mpShowIntro();
   document.getElementById('mpMenu').onclick=showMenu;
 }
 
-function boot(){resize();seedFlowers();seedScene();hideGameUI(true);showMenu();requestAnimationFrame(loop);}
+function boot(){resize();seedFlowers();seedScene();hideGameUI(true);
+  requestAnimationFrame(loop);
+  // deep-link: a friend opened an invite link -> jump straight into joining their room
+  const jc=new URLSearchParams(location.search).get('join');
+  if(jc){ showMenu(); setTimeout(()=>mpJoinRoom(jc), 400); } else { showMenu(); }
+}
 window.addEventListener('load',boot);
 </script>
 </body>
