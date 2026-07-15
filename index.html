@@ -92,6 +92,30 @@
   .lvl.lock{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.12);color:rgba(255,255,255,.3);cursor:default;}
   .lvl .boss{position:absolute;top:-6px;right:-4px;font-size:13px;}
 
+  /* deck builder */
+  #deckWrap{width:100%;max-width:460px;max-height:64vh;overflow-y:auto;overflow-x:hidden;padding:4px 6px;
+    touch-action:pan-y;-webkit-overflow-scrolling:touch;}
+  #deckWrap::-webkit-scrollbar{width:6px;} #deckWrap::-webkit-scrollbar-thumb{background:rgba(255,255,255,.2);border-radius:3px;}
+  .dLabel{font-size:14px;font-weight:800;color:#dcefc6;text-align:right;margin:10px 4px 4px;}
+  .deckRow{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;}
+  .slot{position:relative;aspect-ratio:.86;border-radius:12px;border:2px dashed rgba(255,255,255,.22);
+    background:rgba(0,0,0,.25);display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;}
+  .slot.full{border-style:solid;border-color:var(--gold);background:linear-gradient(180deg,#38512180,#1c2e0e);}
+  .slot canvas{width:80%;height:70%;}
+  .slot .x{position:absolute;top:2px;left:4px;font-size:11px;color:#ff9a9a;}
+  .collGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(60px,1fr));gap:6px;}
+  .collItem{position:relative;aspect-ratio:.9;border-radius:11px;border:2px solid #52712f;cursor:pointer;
+    background:linear-gradient(180deg,#38512180,#1c2e0e);display:flex;flex-direction:column;align-items:center;justify-content:center;
+    transition:transform .08s;overflow:hidden;}
+  .collItem:active{transform:scale(.93);}
+  .collItem canvas{width:78%;height:64%;pointer-events:none;}
+  .collItem .cn{font-size:9.5px;color:#cfe6b6;font-weight:700;margin-top:-1px;}
+  .collItem.inDeck{border-color:var(--gold);box-shadow:0 0 0 2px var(--gold);}
+  .collItem.inDeck::after{content:'✓';position:absolute;top:2px;right:4px;color:var(--gold);font-weight:900;font-size:12px;}
+  .collItem.lockItem{opacity:.4;cursor:default;filter:grayscale(.6);}
+  .collItem .lk{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;
+    color:#fff;font-size:10px;font-weight:800;background:rgba(0,0,0,.35);}
+
   #ctrl{position:absolute;top:calc(8px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);z-index:6;display:flex;gap:8px;}
   .cbtn{width:36px;height:36px;border-radius:11px;background:var(--ui);border:1.5px solid rgba(255,255,255,.1);
     color:#fff;font-size:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 3px 7px rgba(0,0,0,.4);}
@@ -166,6 +190,8 @@ const ENEMIES = {
   spider:     {name:'עכביש',   hp:520, speed:.3,  bite:22, dmg:3, reward:120,air:false, size:32, tint:'#3a2038', mini:true},
   queen:      {name:'מלכת החרקים', hp:1700, speed:.24, bite:40, dmg:5, reward:320, air:false, size:40, tint:'#5a2a5a', armor:.3, boss:true},
 };
+// bug collection: a bug is "earned" for your deck once you clear the level it first appears in
+const ENEMY_UNLOCK = {ant:1, caterpillar:2, fly:3, beetle:4, moth:6, wasp:8, spider:8, queen:10};
 
 const SYNERGIES = [
   {a:'frog',b:'bird',dmg:1.25}, {a:'bee',b:'owl',dmg:1.25}, {a:'hedgehog',b:'turtle',dmg:1.2},
@@ -197,6 +223,33 @@ const G={
 function progress(){ try{return Math.max(1,+(localStorage.getItem('gd_progress')||1));}catch(e){return 1;} }
 function saveProgress(n){ try{localStorage.setItem('gd_progress',Math.min(MAX_LEVEL,Math.max(n,progress())));}catch(e){} }
 function unlockedDefs(level){ const s=[]; for(let k=1;k<=level;k++) if(DEF_UNLOCK[k]) s.push(...DEF_UNLOCK[k]); return s; }
+
+/* ==========================================================================
+   COLLECTION + DECK  (modular layer; Milestone 4 multiplayer consumes getDeck())
+   Collection is derived from campaign progress: animals via DEF_UNLOCK,
+   bugs via ENEMY_UNLOCK. Deck (6 animals + 6 bugs) persists in localStorage.
+   ========================================================================== */
+const DECK_SIZE=6;
+const ALL_ANIMALS=Object.keys(DEFENDERS);
+const ALL_BUGS=Object.keys(ENEMIES);
+const DEFAULT_ANIMALS=['snail','hedgehog','frog','bird','turtle','bee'];
+const DEFAULT_BUGS=['ant','caterpillar','fly','beetle','moth','wasp'];
+// reverse lookup: which campaign level introduces each card
+function animalIntro(id){ for(const k in DEF_UNLOCK) if(DEF_UNLOCK[k].includes(id)) return +k; return 99; }
+function bugIntro(id){ return ENEMY_UNLOCK[id]||99; }
+function collectionAnimals(){ const p=progress(); return ALL_ANIMALS.filter(id=>animalIntro(id)<=p); }
+function collectionBugs(){ const p=progress(); return ALL_BUGS.filter(id=>bugIntro(id)<=p); }
+
+function loadDeck(){ try{return JSON.parse(localStorage.getItem('gd_deck'))||null;}catch(e){return null;} }
+function saveDeck(d){ try{localStorage.setItem('gd_deck',JSON.stringify(d));}catch(e){} }
+/* getDeck(): always returns a playable 6+6 deck. Saved picks first, padded with
+   defaults so the game/multiplayer is never short a card. This is THE api Milestone 4 uses. */
+function getDeck(){
+  const d=loadDeck()||{animals:[],bugs:[]};
+  const A=[...new Set([...(d.animals||[]),...DEFAULT_ANIMALS,...ALL_ANIMALS])].slice(0,DECK_SIZE);
+  const B=[...new Set([...(d.bugs||[]),...DEFAULT_BUGS,...ALL_BUGS])].slice(0,DECK_SIZE);
+  return {animals:A,bugs:B};
+}
 
 /* ---------- layout ---------- */
 function resize(){
@@ -908,9 +961,68 @@ function showMenu(){
     <div class="panel">
       <div class="sub">הגן על הגינה מפני נחילי החרקים דרך <b>100 שלבים</b>!<br>כל שלב פותח חיה חדשה עד שלב 15. סדר חכם = ניצחון.</div>
       <div class="best">🏆 הגעת לשלב ${p} מתוך ${MAX_LEVEL}</div>
-      <button class="btn" id="playBtn">שחק ▶</button>
+      <div class="row"><button class="btn" id="playBtn">שחק ▶</button>
+        <button class="btn sec" id="deckBtn">🎴 חפיסה</button></div>
     </div>`;
   document.getElementById('playBtn').addEventListener('click',showMap);
+  document.getElementById('deckBtn').addEventListener('click',showDeck);
+}
+
+/* ---------- deck builder screen ---------- */
+function showDeck(){
+  G.phase='menu'; ov.classList.remove('hidden'); hideGameUI(true);
+  const deck=loadDeck()||{animals:[],bugs:[]};
+  deck.animals=(deck.animals||[]).filter(id=>DEFENDERS[id]);
+  deck.bugs=(deck.bugs||[]).filter(id=>ENEMIES[id]);
+  const unlA=collectionAnimals(), unlB=collectionBugs();
+
+  function toggle(kind,id){
+    const arr=kind==='animals'?deck.animals:deck.bugs;
+    const i=arr.indexOf(id);
+    if(i>=0) arr.splice(i,1);
+    else{ if(arr.length>=DECK_SIZE){toast('כבר בחרת 6');return;} arr.push(id); }
+    saveDeck(deck); render();
+  }
+  function render(){
+    ov.innerHTML=`<h1 style="font-size:23px">🎴 החפיסה שלך</h1>
+      <div class="panel" style="width:100%;max-width:480px;padding:14px 16px">
+        <div class="sub" style="font-size:13px">בחר <b>6 חיות</b> ו-<b>6 חרקים</b> לקרב המולטיפלייר. הקש על קלף מהאוסף כדי להוסיף/להסיר.</div>
+        <div id="deckWrap">
+          <div class="dLabel">🛡️ חיות בחפיסה (${deck.animals.length}/6)</div><div class="deckRow" id="slotsA"></div>
+          <div class="dLabel">🐛 חרקים בחפיסה (${deck.bugs.length}/6)</div><div class="deckRow" id="slotsB"></div>
+          <div class="dLabel">אוסף החיות</div><div class="collGrid" id="collA"></div>
+          <div class="dLabel">אוסף החרקים</div><div class="collGrid" id="collB"></div>
+        </div>
+      </div>
+      <div class="row"><button class="btn sec" id="deckBack">◀ תפריט</button></div>`;
+    fillSlots('slotsA',deck.animals,DEF_ART,34,'animals');
+    fillSlots('slotsB',deck.bugs,ENE_ART,30,'bugs');
+    fillColl('collA',ALL_ANIMALS,unlA,deck.animals,DEF_ART,DEFENDERS,animalIntro,'animals',30);
+    fillColl('collB',ALL_BUGS,unlB,deck.bugs,ENE_ART,ENEMIES,bugIntro,'bugs',26);
+    document.getElementById('deckBack').onclick=showMenu;
+  }
+  function fillSlots(cid,arr,artMap,s,kind){
+    const box=document.getElementById(cid);box.innerHTML='';
+    for(let i=0;i<DECK_SIZE;i++){const d=document.createElement('div');d.className='slot'+(arr[i]?' full':'');
+      if(arr[i]){const cv=document.createElement('canvas');cv.width=72;cv.height=72;d.appendChild(cv);
+        const g=cv.getContext('2d');g.save();g.translate(36,42);drawStatic(g,artMap[arr[i]],s);g.restore();
+        const x=document.createElement('div');x.className='x';x.textContent='✕';d.appendChild(x);
+        d.onclick=()=>toggle(kind,arr[i]);}
+      else d.innerHTML='<span style="opacity:.4;font-size:20px">＋</span>';
+      box.appendChild(d);}
+  }
+  function fillColl(cid,ids,unlockedArr,deckArr,artMap,dataMap,introFn,kind,s){
+    const box=document.getElementById(cid);box.innerHTML='';const unl=new Set(unlockedArr);
+    for(const id of ids){const it=document.createElement('div');const locked=!unl.has(id);
+      it.className='collItem'+(locked?' lockItem':'')+(deckArr.includes(id)?' inDeck':'');
+      const cv=document.createElement('canvas');cv.width=70;cv.height=70;it.appendChild(cv);
+      const g=cv.getContext('2d');g.save();g.translate(35,42);drawStatic(g,artMap[id],s);g.restore();
+      const nm=document.createElement('div');nm.className='cn';nm.textContent=dataMap[id].name;it.appendChild(nm);
+      if(locked){const lk=document.createElement('div');lk.className='lk';lk.innerHTML='🔒<span>שלב '+introFn(id)+'</span>';it.appendChild(lk);}
+      else it.onclick=()=>toggle(kind,id);
+      box.appendChild(it);}
+  }
+  render();
 }
 function showMap(){
   G.phase='menu'; ov.classList.remove('hidden'); hideGameUI(true);
