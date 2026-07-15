@@ -9,9 +9,10 @@
 <style>
   :root{ --gold:#ffce4a; --ui:rgba(24,38,18,.86); }
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;
-    user-select:none;-webkit-user-select:none;touch-action:none;
+    user-select:none;-webkit-user-select:none;
     font-family:'Varela Round','Segoe UI',system-ui,sans-serif;}
-  html,body{height:100%;overflow:hidden;background:#12200a;}
+  html,body{height:100%;overflow:hidden;background:#12200a;touch-action:none;}
+  canvas#game{touch-action:none;}
   #app{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0e1a08;}
   #stage{position:relative;width:100%;height:100%;max-width:560px;margin:0 auto;overflow:hidden;}
   canvas#game{display:block;width:100%;height:100%;}
@@ -35,12 +36,9 @@
   #progFill{height:100%;width:0;background:linear-gradient(90deg,#ff8f5b,#ffd24a);transition:width .3s;}
   #progFlag{position:absolute;right:0;top:-3px;font-size:12px;}
 
-  #weather{position:absolute;top:60px;left:50%;transform:translateX(-50%);z-index:5;
-    background:var(--ui);color:#fff;padding:5px 14px;border-radius:14px;font-size:13px;font-weight:700;
-    display:flex;gap:6px;align-items:center;opacity:0;transition:opacity .4s;pointer-events:none;box-shadow:0 3px 8px rgba(0,0,0,.4);}
-
   #bar{position:absolute;bottom:0;left:0;right:0;z-index:5;display:flex;gap:6px;align-items:flex-end;
-    padding:8px 8px calc(8px + env(safe-area-inset-bottom));overflow-x:auto;overflow-y:hidden;
+    padding:8px 10px calc(8px + env(safe-area-inset-bottom));overflow-x:auto;overflow-y:hidden;
+    touch-action:pan-x;-webkit-overflow-scrolling:touch;scroll-behavior:smooth;
     background:linear-gradient(180deg,rgba(14,26,8,0),rgba(14,26,8,.8) 55%);scrollbar-width:none;}
   #bar::-webkit-scrollbar{display:none;}
   .card{position:relative;flex:0 0 auto;width:62px;height:84px;border-radius:13px;
@@ -81,6 +79,7 @@
 
   /* level map */
   #mapWrap{width:100%;max-width:420px;height:60vh;overflow-y:auto;overflow-x:hidden;padding:6px 4px;
+    touch-action:pan-y;-webkit-overflow-scrolling:touch;
     background:rgba(0,0,0,.25);border-radius:16px;border:1.5px solid rgba(255,255,255,.08);}
   #mapWrap::-webkit-scrollbar{width:6px;} #mapWrap::-webkit-scrollbar-thumb{background:rgba(255,255,255,.2);border-radius:3px;}
   #mapGrid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;padding:6px;}
@@ -115,7 +114,6 @@
   </div>
   <div id="prog"><div id="progFill"></div><div id="progFlag">🚩</div></div>
   <div id="ctrl"><div class="cbtn" id="pauseBtn">⏸</div><div class="cbtn" id="speedBtn">1×</div><div class="cbtn" id="mapBtn">🗺️</div></div>
-  <div id="weather"><span id="wIc">☀️</span><span id="wTx"></span></div>
   <div id="toast"></div>
   <div id="bar"></div>
 
@@ -174,12 +172,7 @@ const SYNERGIES = [
   {a:'cat',b:'bear',dmg:1.2}, {a:'snail',b:'mouse',prod:1.3}, {a:'fox',b:'squirrel',dmg:1.2},
 ];
 
-const WEATHER = [
-  {id:'sun',  ic:'☀️',tx:'שמש נעימה', tint:null, espeed:1,   sky:'#bfe89a'},
-  {id:'rain', ic:'🌧️',tx:'גשם — החרקים מואטים', tint:'#3a5a8a', espeed:.72, sky:'#8ea9b8'},
-  {id:'wind', ic:'💨',tx:'רוח — מעופפים סוטים', tint:'#cfe6d8', espeed:1.12,sky:'#c9e6c0'},
-  {id:'night',ic:'🌙',tx:'לילה — חושך יורד', tint:'#0a1230', espeed:1, sky:'#243a52', dark:true},
-];
+/* Weather removed (Milestone 1). */
 
 /* ==========================================================================
    STATE
@@ -195,7 +188,7 @@ const G={
   defenders:[], enemies:[], projectiles:[], particles:[], floats:[],
   selected:null, sellMode:false,
   spawnQueue:[], spawnT:0, prepT:0, spawning:false, levelTotal:0,
-  weatherIdx:0, weatherT:0, weatherDur:30, ambientT:0,
+  ambientT:0,
   shake:0, time:0, biome:0,
 };
 
@@ -419,6 +412,14 @@ const ENE_ART={ant:eAnt,caterpillar:eCaterpillar,beetle:eBeetle,fly:eFly,moth:eM
 /* ==========================================================================
    ENTITIES
    ========================================================================== */
+/* --- producer economy (Milestone 1): rising cost + diminishing returns + soft cap --- */
+const MAX_PRODUCERS=7;                                   // soft safety cap
+function producerCount(){let n=0;for(const d of G.defenders)if(d.alive&&d.role==='producer')n++;return n;}
+function defenderCost(id){const t=DEFENDERS[id];
+  if(t.role==='producer'){ return Math.round(t.cost*(1+0.6*producerCount())/5)*5; } // each extra producer costs ~60% more
+  return t.cost; }
+function producerFactor(){ return 1/(1+0.2*Math.max(0,producerCount()-1)); }        // total-income diminishing returns
+
 function place(id,c,r){const t=DEFENDERS[id];
   G.defenders.push({...t,type:id,c,r,alive:true,hp:t.hp,maxHp:t.hp,px:cellCX(c),py:cellCY(r),
     anim:Math.random()*6,fireT:Math.random()*.4,prodT:0,atk:0,hurt:0,pop:1.3,synD:1,synP:1,syn:false});}
@@ -455,20 +456,29 @@ function enemyPool(n){const p=['ant','ant'];
   return p;}
 function pick(a){return a[(Math.random()*a.length)|0];}
 function buildLevel(n){
-  const q=[]; const add=(id,gap)=>q.push({id,gap});
+  // Slower, measured pacing (~2.5min early -> ~5min late). Gaps are seconds
+  // between spawns; clear breathers between waves give time to plan.
+  const q=[]; let est=0; const add=(id,gap)=>{q.push({id,gap});est+=gap;};
   const pool=enemyPool(n);
-  const clusters=4+Math.floor(n/2.5);
-  const fast=Math.max(.45,1.05-n*0.006);
-  for(let c=0;c<clusters;c++){
-    const size=3+Math.floor(n/3)+c;
-    for(let i=0;i<size;i++) add(pick(pool), i===0?3.2:fast);
-    if(n>=8 && c>0 && c%3===0) add('spider',2.5);
+  const target=Math.min(300,150+n*3);           // spawn-schedule length in seconds
+  const restGap=Math.max(3,5-n*0.015);          // breather before each wave
+  const inGap=Math.max(.85,1.6-n*0.006);        // gap within a wave
+  const finGap=Math.max(.5,.9-n*0.004);         // final-rush gap
+  const finSize=6+Math.floor(n/2);
+  const reserve=finSize*finGap+7;               // room for final rush + boss
+  let c=0;
+  while(est<target-reserve && c<60){
+    const size=3+Math.floor(n/4)+(c%2);
+    add(pick(pool),restGap);                     // wave breather
+    for(let i=1;i<size;i++) add(pick(pool),inGap);
+    if(n>=8 && c>0 && c%3===0) add('spider',restGap);
+    c++;
   }
   // final rush
-  const fin=8+Math.floor(n/1.5);
-  for(let i=0;i<fin;i++) add(pick(pool), Math.max(.32,.6-n*0.004));
-  if(n%10===0) add('queen',2.5);
-  else if(n>=8 && n%5===0) add('spider',2.5);
+  add(pick(pool),restGap);
+  for(let i=1;i<finSize;i++) add(pick(pool),finGap);
+  if(n%10===0) add('queen',3);
+  else if(n>=8 && n%5===0) add('spider',3);
   return q;
 }
 
@@ -483,13 +493,8 @@ function update(dt){
   // prep countdown before spawning
   if(!G.spawning){ G.prepT-=dt; if(G.prepT<=0){ G.spawning=true; } }
 
-  // ambient sunshine so the economy always flows
-  G.ambientT+=dt; if(G.ambientT>=5){ G.ambientT=0; G.sun+=25; syncHUD(); }
-
-  // weather
-  G.weatherT+=dt;
-  if(G.weatherT>=G.weatherDur){G.weatherT=0;G.weatherIdx=(G.weatherIdx+1)%WEATHER.length;showWeather();}
-  const wx=WEATHER[G.weatherIdx];
+  // tiny ambient sun trickle (kept minimal so producers are the real economy)
+  G.ambientT+=dt; if(G.ambientT>=8){ G.ambientT=0; G.sun+=5; syncHUD(); }
 
   // spawn
   if(G.spawning && G.spawnQueue.length){
@@ -502,7 +507,7 @@ function update(dt){
   for(const d of G.defenders){
     if(!d.alive)continue;
     d.anim+=dt; if(d.pop>1)d.pop=Math.max(1,d.pop-dt*3); if(d.hurt>0)d.hurt-=dt*3; if(d.atk>0)d.atk=Math.max(0,d.atk-dt*3);
-    if(d.role==='producer'){ d.prodT+=dt; if(d.prodT>=d.every){d.prodT=0;const a=Math.round(d.produce*d.synP);
+    if(d.role==='producer'){ d.prodT+=dt; if(d.prodT>=d.every){d.prodT=0;const a=Math.max(1,Math.round(d.produce*d.synP*producerFactor()));
       G.sun+=a;floatText(d.px,d.py-cell*.4,'+'+a,'#ffd94a');burst(d.px,d.py-cell*.3,'#ffe27a',8);syncHUD();} continue; }
     d.fireT+=dt; const tg=findTarget(d);
     if(tg && d.fireT>=1/d.rate){ d.fireT=0; d.atk=1;
@@ -528,8 +533,8 @@ function update(dt){
   for(const e of G.enemies){
     if(!e.alive)continue;
     e.leg+=dt*10; if(e.hurt>0)e.hurt-=dt*4;
-    let sp=e.speed*cell*dt*wx.espeed;
-    if(wx.id==='wind'&&e.air){e.shift+=Math.sin(G.time*3+e.baseY)*dt*cell*.5;} else e.shift*=(1-dt*2);
+    let sp=e.speed*cell*dt;
+    e.shift*=(1-dt*2);
     const blk=frontDefender(e);
     if(blk){ blk.hp-=e.bite*dt; blk.hurt=1; if(blk.hp<=0){blk.alive=false;leafBurst(blk.px,blk.py);recomputeSynergy();} }
     else e.x-=sp;
@@ -592,7 +597,8 @@ function draw(){
     const x=boardX+hover.c*cell,y=boardY+hover.r*cell, occ=defAt(hover.c,hover.r);
     let ok;
     if(G.sellMode) ok=!!occ;
-    else ok=!occ && G.sun>=DEFENDERS[G.selected].cost;
+    else{const pOK=DEFENDERS[G.selected].role!=='producer'||producerCount()<MAX_PRODUCERS;
+      ok=!occ && pOK && G.sun>=defenderCost(G.selected);}
     ctx.fillStyle=ok?(G.sellMode?'rgba(255,120,80,.3)':'rgba(255,255,255,.22)'):'rgba(255,70,70,.28)';
     roundRect(x+3,y+3,cell-6,cell-6,10);ctx.fill();
     ctx.strokeStyle=ok?(G.sellMode?'#ff8f5b':'rgba(255,255,255,.6)'):'rgba(255,90,90,.7)';ctx.lineWidth=2.5;
@@ -608,15 +614,6 @@ function draw(){
   const list=[...G.defenders.map(d=>({y:d.py,f:()=>drawDefender(d)})),...G.enemies.map(e=>({y:e.y,f:()=>drawEnemy(e)}))].sort((a,b)=>a.y-b.y);
   list.forEach(o=>o.f());
   G.projectiles.forEach(drawProj); G.particles.forEach(drawParticle);
-
-  const wx=WEATHER[G.weatherIdx];
-  if(wx.dark){ ctx.fillStyle='rgba(4,8,24,.6)';ctx.fillRect(0,0,viewW,viewH);
-    ctx.globalCompositeOperation='destination-out';
-    for(const d of G.defenders){const rg=ctx.createRadialGradient(d.px,d.py,4,d.px,d.py,cell*1.6);
-      rg.addColorStop(0,'rgba(0,0,0,.9)');rg.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=rg;ctx.beginPath();ctx.arc(d.px,d.py,cell*1.6,0,6.28);ctx.fill();}
-    ctx.globalCompositeOperation='source-over';
-  } else if(wx.tint){ctx.fillStyle=wx.tint;ctx.globalAlpha=.13;ctx.fillRect(0,0,viewW,viewH);ctx.globalAlpha=1;}
-  if(wx.id==='rain')drawRain();
   ctx.restore();
 
   for(const f of G.floats){const a=1-f.t/f.life;ctx.globalAlpha=Math.max(0,a);ctx.fillStyle=f.col;
@@ -641,17 +638,17 @@ function seedScene(){
   scene.birds=[{x:.25,y:.14,ph:0},{x:.4,y:.11,ph:1.5}];
 }
 function drawScene(){
-  const b=BIOMES[G.biome],wx=WEATHER[G.weatherIdx];
+  const b=BIOMES[G.biome];
   // ---- sky ----
   const horizon=boardY-6;
   const sky=ctx.createLinearGradient(0,0,0,viewH);
-  const skyTop=wx.dark?'#101a34':(wx.sky?shade(wx.sky,1.14):'#bfe6f0');
+  const skyTop=shade(b.g1,1.18);
   sky.addColorStop(0,skyTop);sky.addColorStop(Math.max(.05,horizon/viewH*.75),shade(b.g1,1.06));sky.addColorStop(1,shade(b.g2,.82));
   ctx.fillStyle=sky;ctx.fillRect(0,0,viewW,viewH);
-  // ---- sun / moon ----
-  drawSunMoon(wx,horizon);
+  // ---- sun ----
+  drawSunMoon(horizon);
   // ---- clouds (slow drift) ----
-  if(!wx.dark){ctx.globalAlpha=.9;for(const c of scene.clouds){const cx=(((c.x+G.time*0.004)%1.15)-.075)*viewW;drawCloud(cx,c.y*horizon+20,c.s*(cell*.5));}ctx.globalAlpha=1;}
+  ctx.globalAlpha=.9;for(const c of scene.clouds){const cx=(((c.x+G.time*0.004)%1.15)-.075)*viewW;drawCloud(cx,c.y*horizon+20,c.s*(cell*.5));}ctx.globalAlpha=1;
   // ---- distant hills behind the bed ----
   drawHills(b,horizon);
   // ---- soft ground shadow under the bed ----
@@ -673,17 +670,13 @@ function drawScene(){
   // ---- foreground bushes filling the bottom ----
   drawForeground(b);
   // ---- ambient pollen motes for life ----
-  if(!wx.dark)drawMotes();
+  drawMotes();
   // ---- vignette ----
   const vg=ctx.createRadialGradient(viewW/2,viewH*.45,viewH*.3,viewW/2,viewH*.5,viewH*.75);
   vg.addColorStop(0,'rgba(0,0,0,0)');vg.addColorStop(1,'rgba(0,0,0,.22)');ctx.fillStyle=vg;ctx.fillRect(0,0,viewW,viewH);
 }
-function drawSunMoon(wx,horizon){
+function drawSunMoon(horizon){
   const x=viewW*.8,y=horizon*.34;
-  if(wx.dark){ const g=ctx.createRadialGradient(x,y,2,x,y,cell*1.4);g.addColorStop(0,'rgba(230,235,255,.5)');g.addColorStop(1,'rgba(230,235,255,0)');
-    ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,cell*1.4,0,6.28);ctx.fill();
-    ctx.fillStyle='#eef2ff';ctx.beginPath();ctx.arc(x,y,cell*.32,0,6.28);ctx.fill();
-    ctx.fillStyle=wx.sky?shade(wx.sky,1.14):'#101a34';ctx.beginPath();ctx.arc(x+cell*.14,y-cell*.08,cell*.28,0,6.28);ctx.fill();return; }
   // rotating rays
   ctx.save();ctx.translate(x,y);ctx.rotate(G.time*0.15);ctx.fillStyle='rgba(255,238,150,.18)';
   for(let i=0;i<12;i++){ctx.rotate(6.2832/12);ctx.beginPath();ctx.moveTo(cell*.45,-cell*.12);ctx.lineTo(cell*1.6,0);ctx.lineTo(cell*.45,cell*.12);ctx.closePath();ctx.fill();}
@@ -799,11 +792,6 @@ function drawParticle(p){const a=1-p.t/p.life;ctx.globalAlpha=Math.max(0,a);
   if(p.ring){const rr=p.r+(p.t/p.life)*p.r*1.8;ctx.strokeStyle=p.col;ctx.lineWidth=2.5*a+.5;ctx.beginPath();ctx.arc(p.x,p.y,rr,0,6.28);ctx.stroke();}
   else if(p.leaf){ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.rot);ctx.fillStyle=p.col;ctx.beginPath();ctx.ellipse(0,0,p.r,p.r*.5,0,0,6.28);ctx.fill();ctx.restore();}
   else{ctx.fillStyle=p.col;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,6.28);ctx.fill();}ctx.globalAlpha=1;}
-let rain=[];
-function drawRain(){if(rain.length===0)for(let i=0;i<60;i++)rain.push({x:Math.random()*viewW,y:Math.random()*viewH,s:6+Math.random()*8});
-  ctx.strokeStyle='rgba(180,210,255,.4)';ctx.lineWidth=1.5;
-  for(const d of rain){ctx.beginPath();ctx.moveTo(d.x,d.y);ctx.lineTo(d.x-3,d.y+d.s);ctx.stroke();d.y+=14;d.x-=3;if(d.y>viewH){d.y=-10;d.x=Math.random()*viewW;}}}
-
 function roundRect(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
 function shade(hex,f){const n=parseInt(hex.slice(1),16);let r=(n>>16)&255,g=(n>>8)&255,b=n&255;
   r=Math.min(255,r*f)|0;g=Math.min(255,g*f)|0;b=Math.min(255,b*f)|0;return '#'+((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1);}
@@ -820,8 +808,6 @@ function loop(ts){const dt=Math.min(.05,(ts-last)/1000||0);last=ts;update(dt);dr
 let hover=null;
 const toastEl=document.getElementById('toast');let toastTimer;
 function toast(m){toastEl.textContent=m;toastEl.style.opacity=1;clearTimeout(toastTimer);toastTimer=setTimeout(()=>toastEl.style.opacity=0,1600);}
-function showWeather(){const w=WEATHER[G.weatherIdx];document.getElementById('wIc').textContent=w.ic;
-  document.getElementById('wTx').textContent=w.tx;const el=document.getElementById('weather');el.style.opacity=1;setTimeout(()=>el.style.opacity=0,2600);if(w.id==='rain')rain=[];}
 function updateProgress(){
   const remain=G.spawnQueue.length+G.enemies.length;
   const done=Math.max(0,G.levelTotal-remain);
@@ -834,10 +820,15 @@ function syncHUD(){
   const h=document.getElementById('hearts');
   if(h.children.length!==G.maxHp){h.innerHTML='';for(let i=0;i<G.maxHp;i++){const s=document.createElement('span');s.className='heart';s.textContent='❤️';h.appendChild(s);}}
   [...h.children].forEach((el,i)=>el.classList.toggle('gone',i>=G.hp));
-  document.querySelectorAll('.card').forEach(c=>c.classList.toggle('poor',G.sun<DEFENDERS[c.dataset.id].cost));
+  document.querySelectorAll('.card').forEach(c=>{const id=c.dataset.id,cost=defenderCost(id);
+    const co=c.querySelector('.co');if(co)co.innerHTML='☀️'+cost;
+    const capped=DEFENDERS[id].role==='producer'&&producerCount()>=MAX_PRODUCERS;
+    c.classList.toggle('poor',G.sun<cost||capped);});
 }
 function buildBar(){
   const bar=document.getElementById('bar');bar.innerHTML='';
+  // desktop: let the mouse wheel scroll the card bar horizontally
+  bar.onwheel=e=>{if(e.deltaY){bar.scrollLeft+=e.deltaY;e.preventDefault();}};
   const sh=document.createElement('div');sh.id='shovel';sh.innerHTML='<span class="em">🧤</span>הוצא';
   sh.addEventListener('click',()=>{G.sellMode=!G.sellMode;sh.classList.toggle('on',G.sellMode);
     if(G.sellMode){G.selected=null;document.querySelectorAll('.card').forEach(c=>c.classList.remove('sel'));}});
@@ -846,7 +837,7 @@ function buildBar(){
     const card=document.createElement('div');card.className='card';card.dataset.id=id;
     const cv=document.createElement('canvas');cv.width=92;cv.height=92;card.appendChild(cv);
     const nm=document.createElement('div');nm.className='nm';nm.textContent=t.name;card.appendChild(nm);
-    const co=document.createElement('div');co.className='co';co.innerHTML='☀️'+t.cost;card.appendChild(co);
+    const co=document.createElement('div');co.className='co';co.innerHTML='☀️'+defenderCost(id);card.appendChild(co);
     bar.appendChild(card);portrait(cv,id);
     card.addEventListener('click',()=>selectCard(id,card));}
   syncHUD();
@@ -865,10 +856,11 @@ canvas.addEventListener('pointerdown',ev=>{
   if(G.phase!=='play')return;const c=pointToCell(getPos(ev).x,getPos(ev).y);if(!c)return;hover=c;
   if(G.sellMode){const d=defAt(c.c,c.r);if(d){const refund=Math.floor(DEFENDERS[d.type].cost*.5);G.sun+=refund;
     d.alive=false;recomputeSynergy();burst(cellCX(c.c),cellCY(c.r),'#ffd24a',10);floatText(cellCX(c.c),cellCY(c.r)-cell*.3,'+'+refund,'#ffd24a');syncHUD();}return;}
-  if(G.selected){const t=DEFENDERS[G.selected];
+  if(G.selected){const t=DEFENDERS[G.selected];const cost=defenderCost(G.selected);
     if(defAt(c.c,c.r)){toast('התא תפוס');return;}
-    if(G.sun<t.cost){toast('אין מספיק שמש ☀️');return;}
-    G.sun-=t.cost;place(G.selected,c.c,c.r);recomputeSynergy();burst(cellCX(c.c),cellCY(c.r),'#fff',10);syncHUD();}
+    if(t.role==='producer'&&producerCount()>=MAX_PRODUCERS){toast('הגעת למקסימום מייצרים');return;}
+    if(G.sun<cost){toast('אין מספיק שמש ☀️');return;}
+    G.sun-=cost;place(G.selected,c.c,c.r);recomputeSynergy();burst(cellCX(c.c),cellCY(c.r),'#fff',10);syncHUD();}
 });
 document.getElementById('pauseBtn').addEventListener('click',()=>{
   if(G.phase==='play'){G.phase='pause';document.getElementById('pauseBtn').textContent='▶';toast('הופסק');}
@@ -918,7 +910,7 @@ function startLevel(n){
   Object.assign(G,{phase:'play',level:n,hp:5,maxHp:5,sun:100,speed:1,
     defenders:[],enemies:[],projectiles:[],particles:[],floats:[],selected:null,sellMode:false,
     spawnQueue:buildLevel(n),spawnT:0,prepT:5,spawning:false,
-    weatherIdx:0,weatherT:0,ambientT:0,time:0,shake:0,biome:Math.min(3,Math.floor((n-1)/8))});
+    ambientT:0,time:0,shake:0,biome:Math.min(3,Math.floor((n-1)/8))});
   G.levelTotal=G.spawnQueue.length;
   ov.classList.add('hidden'); hideGameUI(false);
   document.getElementById('pauseBtn').textContent='⏸';document.getElementById('speedBtn').textContent='1×';
