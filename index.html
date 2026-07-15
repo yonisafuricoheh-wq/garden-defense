@@ -166,7 +166,7 @@
   <div id="mpTop"><div class="chip" id="mpInfo">⚔️</div><button class="cbtn" id="mpExit">✕</button></div>
   <div id="mpUI">
     <div class="mpBarRow"><div class="mpBarLbl">🛡️ הגנה</div><div class="mpBar" id="mpDef"></div></div>
-    <div class="mpBarRow"><div class="mpBarLbl">⚔️ תקיפה</div><div class="mpBar" id="mpAtk"></div></div>
+    <div class="mpBarRow"><div class="mpBarLbl" id="mpAtkLbl">⚔️ תקיפה</div><div class="mpBar" id="mpAtk"></div></div>
   </div>
 
   <div id="ov"></div>
@@ -1378,11 +1378,19 @@ function seedFlowers(){flowers=[];for(let i=0;i<46;i++){const r=Math.random();
    spend on defense. Reads your loadout via getDeck(). Win by draining the
    opponent's hearts. Milestone 5 swaps `transport` for WebRTC/WebSocket only.
    ========================================================================== */
-const MP_COLS=6, MP_ROWS=4, MP_START_SUN=175, MP_HP=10, MP_REGEN=13;
+/* Multiplayer tuned SLOW & LONG (user request): more hearts, gentle income,
+   an attack cooldown, a producer cap, reduced producer yield, slower crawl. */
+const MP_COLS=6, MP_ROWS=4;
+const MP_START_SUN=120, MP_HP=20, MP_REGEN=6;    // more hearts + gentle base income
+const MP_MAX_PROD=3;                              // producer limit (anti economy-snowball)
+const MP_PROD_MUL=0.5;                            // snails/mice give half sun in MP
+const MP_ATK_CD=5.0;                              // seconds between your bug launches
+const MP_ESPEED=0.78;                             // bugs crawl slower in MP (on top of ENEMY_SPEED)
 let MP={active:false};
-function mpBugCost(id){ return Math.round(ENEMIES[id].reward*1.6); }
-function mpField(owner){ return {owner,hp:MP_HP,maxHp:MP_HP,sun:MP_START_SUN,
+function mpBugCost(id){ return Math.round(ENEMIES[id].reward*2.2); }   // pricier attacks → measured
+function mpField(owner){ return {owner,hp:MP_HP,maxHp:MP_HP,sun:MP_START_SUN,atkCd:0,
   defenders:[],enemies:[],projectiles:[],parts:[],floats:[],bx:0,by:0,bw:0,bh:0,cell:40}; }
+function mpProdCount(F){ let n=0; for(const d of F.defenders) if(d.alive&&d.role==='producer') n++; return n; }
 const fcx=(F,c)=>F.bx+(c+.5)*F.cell, fcy=(F,r)=>F.by+(r+.5)*F.cell;
 function mpLayout(){
   const topPad=54, botPad=150, gap=8;
@@ -1408,12 +1416,14 @@ function applyAction(a){
   if(a.t==='place'){
     const cost=DEFENDERS[a.id].cost;
     if(actor.sun<cost || fDefAt(actor,a.c,a.r)) return false;
+    if(DEFENDERS[a.id].role==='producer' && mpProdCount(actor)>=MP_MAX_PROD) return false;  // producer cap
     actor.sun-=cost; mpPlace(actor,a.id,a.c,a.r); return true;
   }
   if(a.t==='launch'){
+    if(actor.atkCd>0) return false;              // attack cooldown
     const cost=mpBugCost(a.id); if(actor.sun<cost) return false;
-    const target=a.by==='me'?MP.opp:MP.me;      // your bugs crawl in the OPPONENT's garden
-    actor.sun-=cost; mpSpawn(target,a.id,a.row); return true;
+    const target=a.by==='me'?MP.opp:MP.me;       // your bugs crawl in the OPPONENT's garden
+    actor.sun-=cost; actor.atkCd=MP_ATK_CD; mpSpawn(target,a.id,a.row); return true;
   }
   return false;
 }
@@ -1428,17 +1438,16 @@ function mpSpawn(F,id,row){ const t=ENEMIES[id];
 
 /* ---------- BOT (dumb-but-alive; acts through the same transport as a human) ---------- */
 function mpBotTick(dt){
-  MP.botT-=dt; if(MP.botT>0) return; MP.botT=0.7+Math.random()*1.1;
+  MP.botT-=dt; if(MP.botT>0) return; MP.botT=1.6+Math.random()*1.8;   // calmer bot cadence
   const F=MP.opp, deck=MP.oppDeck;
-  // decide: defend (place animal) or attack (launch bug), based on pressure + sun
   const pressure=MP.opp.enemies.length;                 // bugs I launched at the bot
-  const wantDefend = pressure>MP.opp.defenders.length || Math.random()<0.5;
+  const wantDefend = pressure>MP.opp.defenders.length || F.atkCd>0 || Math.random()<0.5;
   if(wantDefend){
     const id=deck.animals[(Math.random()*deck.animals.length)|0];
-    if(F.sun>=DEFENDERS[id].cost){ // random empty cell, prefer front columns
-      for(let tries=0;tries<8;tries++){ const c=(Math.random()*MP_COLS)|0, r=(Math.random()*MP_ROWS)|0;
+    if(DEFENDERS[id].role==='producer' && mpProdCount(F)>=MP_MAX_PROD) return;
+    if(F.sun>=DEFENDERS[id].cost){ for(let tries=0;tries<8;tries++){ const c=(Math.random()*MP_COLS)|0, r=(Math.random()*MP_ROWS)|0;
         if(!fDefAt(F,c,r)){ transport.send({by:'opp',t:'place',id,c,r}); break; } } }
-  } else {
+  } else if(F.atkCd<=0){
     const id=deck.bugs[(Math.random()*deck.bugs.length)|0];
     if(F.sun>=mpBugCost(id)) transport.send({by:'opp',t:'launch',id,row:(Math.random()*MP_ROWS)|0});
   }
@@ -1449,6 +1458,7 @@ function mpUpdate(dt){
   if(MP.over){ return; }
   MP.me.sun=Math.min(999,MP.me.sun+MP_REGEN*dt);
   MP.opp.sun=Math.min(999,MP.opp.sun+MP_REGEN*dt);
+  if(MP.me.atkCd>0)MP.me.atkCd-=dt; if(MP.opp.atkCd>0)MP.opp.atkCd-=dt;
   mpBotTick(dt);
   mpStepField(MP.me,dt); mpStepField(MP.opp,dt);
   mpSyncUI();
@@ -1476,7 +1486,7 @@ function mpStepField(F,dt){
   // defenders
   for(const d of F.defenders){ if(!d.alive)continue;
     d.anim+=dt; if(d.pop>1)d.pop=Math.max(1,d.pop-dt*3); if(d.hurt>0)d.hurt-=dt*3; if(d.atk>0)d.atk=Math.max(0,d.atk-dt*3);
-    if(d.role==='producer'){ d.prodT+=dt; if(d.prodT>=d.every){d.prodT=0;F.sun=Math.min(999,F.sun+d.produce);mpBurst(F,d.px,d.py-8,'#ffe27a',6);} continue; }
+    if(d.role==='producer'){ d.prodT+=dt; if(d.prodT>=d.every){d.prodT=0;F.sun=Math.min(999,F.sun+Math.max(1,Math.round(d.produce*MP_PROD_MUL)));mpBurst(F,d.px,d.py-8,'#ffe27a',6);} continue; }
     if(d.role==='support')continue;
     d.fireT+=dt; if(d.fireT<1/d.rate)continue;
     // area abilities
@@ -1501,7 +1511,7 @@ function mpStepField(F,dt){
     e.leg+=dt*10; if(e.hurt>0)e.hurt-=dt*4; if(e.hop>0)e.hop-=dt*4; if(e.slow>0)e.slow-=dt;
     if(e.heal){ e.healT-=dt; if(e.healT<=0){e.healT=2.2; for(const o of F.enemies)if(o.alive&&o!==e&&Math.hypot(o.x-e.x,o.y-e.y)<=e.healR*F.cell)o.hp=Math.min(o.maxHp,o.hp+e.heal);} }
     if(e.dig){ if(e.underground){e.digDur-=dt;if(e.digDur<=0){e.underground=false;e.digT=3+Math.random()*2;}} else {e.digT-=dt;if(e.digT<=0&&e.x<fcx(F,MP_COLS-1)){e.underground=true;e.digDur=2.4;}} }
-    const sp=e.speed*ENEMY_SPEED*F.cell*dt*(e.slow>0?0.45:1);
+    const sp=e.speed*ENEMY_SPEED*MP_ESPEED*F.cell*dt*(e.slow>0?0.45:1);
     const blk=e.underground?null:mpFront(F,e);
     if(blk){ if(e.jumps>0){e.jumps--;e.hop=1;e.x=blk.px-F.cell*.58;} else { blk.hp-=e.bite*dt;blk.hurt=1; if(blk.hp<=0){blk.alive=false;mpBurst(F,blk.px,blk.py,'#7cc35a',8);} } }
     else e.x-=sp;
@@ -1571,8 +1581,12 @@ function mpBuildBars(){
     c.dataset.id=id;c.onclick=()=>mpSelect('bug',id,c);atk.appendChild(c); }
 }
 function mpSyncUI(){
-  document.querySelectorAll('#mpDef .mpCard').forEach(c=>c.classList.toggle('poor',MP.me.sun<DEFENDERS[c.dataset.id].cost));
-  document.querySelectorAll('#mpAtk .mpCard').forEach(c=>c.classList.toggle('poor',MP.me.sun<mpBugCost(c.dataset.id)));
+  const atCap=mpProdCount(MP.me)>=MP_MAX_PROD;
+  document.querySelectorAll('#mpDef .mpCard').forEach(c=>{const id=c.dataset.id;
+    c.classList.toggle('poor', MP.me.sun<DEFENDERS[id].cost || (DEFENDERS[id].role==='producer'&&atCap));});
+  const cd=MP.me.atkCd>0;
+  document.querySelectorAll('#mpAtk .mpCard').forEach(c=>c.classList.toggle('poor', cd || MP.me.sun<mpBugCost(c.dataset.id)));
+  const albl=document.getElementById('mpAtkLbl'); if(albl) albl.innerHTML = cd?('⏳ '+Math.ceil(MP.me.atkCd)):'⚔️ תקיפה';
   const info=document.getElementById('mpInfo');
   if(info)info.innerHTML='☀️'+Math.floor(MP.me.sun)+'  ❤️'+MP.me.hp+'  •  יריב ❤️'+MP.opp.hp;
 }
@@ -1583,10 +1597,12 @@ canvas.addEventListener('pointerdown',ev=>{ if(!MP.active||MP.over)return;
   if(MP.sel.kind==='animal'){ if(!inField(MP.me,x,y)){toast('הצב חיות בגינה שלך (למטה)');return;}
     const c=Math.floor((x-MP.me.bx)/MP.me.cell),rr=Math.floor((y-MP.me.by)/MP.me.cell);
     if(c<0||c>=MP_COLS||rr<0||rr>=MP_ROWS)return;
+    if(DEFENDERS[MP.sel.id].role==='producer'&&mpProdCount(MP.me)>=MP_MAX_PROD){toast('מקסימום '+MP_MAX_PROD+' מייצרים');return;}
     if(MP.me.sun<DEFENDERS[MP.sel.id].cost){toast('אין מספיק שמש ☀️');return;}
     if(fDefAt(MP.me,c,rr)){toast('התא תפוס');return;}
     transport.send({by:'me',t:'place',id:MP.sel.id,c,r:rr}); }
   else { if(!inField(MP.opp,x,y)){toast('שגר חרקים לגינת היריב (למעלה)');return;}
+    if(MP.me.atkCd>0){toast('התקפה בטעינה — '+Math.ceil(MP.me.atkCd)+' שנ׳');return;}
     const rr=Math.floor((y-MP.opp.by)/MP.opp.cell); if(rr<0||rr>=MP_ROWS)return;
     if(MP.me.sun<mpBugCost(MP.sel.id)){toast('אין מספיק שמש ☀️');return;}
     transport.send({by:'me',t:'launch',id:MP.sel.id,row:rr}); mpBurst(MP.opp,fcx(MP.opp,MP_COLS),fcy(MP.opp,rr),'#c04040',6); }
