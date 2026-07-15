@@ -189,7 +189,7 @@ const DEFENDERS = {
   cat:     {name:'חתול',  cost:150,hp:280, role:'melee', range:1.55,dmg:20, rate:1.4, swipe:true, tint:'#9aa0aa',
             desc:'שריטה רחבה: פוגע בחרקים בנתיב שלו וגם בשני הנתיבים הסמוכים.'},
   mole:    {name:'חפרפרת',cost:150,hp:220, role:'melee', range:1.7, dmg:24, rate:1.3, groundAoe:true, ignoreArmor:true, tint:'#4a3a48',
-            desc:'מתקפת מחתרת: פוגעת באזור בחרקי קרקע ומתעלמת משריון.'},
+            desc:'מתקפת מחתרת: פוגעת באזור בחרקי קרקע, מתעלמת משריון, ומגיעה גם לחרקים שחופרים מתחת לאדמה.'},
   bear:    {name:'דוב',   cost:300,hp:950, role:'melee', range:1.4, dmg:62, rate:0.9, wall:true, tint:'#8a5f3a',
             desc:'טנק ענק: חוסם את הנתיב, סופג המון נזק ומכה חזק מאוד.'},
   raccoon: {name:'ראקון', cost:125,hp:200, role:'support', tint:'#9aa0a8',
@@ -587,7 +587,13 @@ function producerFactor(){ return 1; }                    // flat yield, no dimi
 function place(id,c,r){const t=DEFENDERS[id];
   G.defenders.push({...t,type:id,c,r,alive:true,hp:t.hp,maxHp:t.hp,px:cellCX(c),py:cellCY(r),
     anim:Math.random()*6,fireT:Math.random()*.4,prodT:0,atk:0,hurt:0,pop:1.3,synD:1,synP:1,syn:false});}
-function enemyScale(){return 1+(G.level-1)*0.08;}
+/* Level scaling — all curves are 1.0 at level 1 (early game the player approved is
+   untouched) and grow together so late levels stay a FAIR fight, not an HP wall.
+   Enemy HP grows a touch faster than defender power, so difficulty rises gently. */
+function enemyScale(){ return 1+(G.level-1)*0.055; }     // enemy HP
+function defPower(){ return 1+(G.level-1)*0.05; }        // defender damage keeps pace
+function producerScale(){ return 1+(G.level-1)*0.03; }   // dew income keeps pace
+function startSun(){ return Math.round(150+(G.level-1)*4); }
 function spawn(id,row,x){const t=ENEMIES[id];const sc=enemyScale();const hp=Math.round(t.hp*sc);
   G.enemies.push({...t,type:id,row,alive:true,hp,maxHp:hp,x:(x!=null?x:cellCX(COLS)+cell*.4),y:cellCY(row)+(t.air?-cell*.18:0),
     baseY:cellCY(row),leg:Math.random()*6,hurt:0,shift:0,eat:null,
@@ -598,7 +604,7 @@ function spawn(id,row,x){const t=ENEMIES[id];const sc=enemyScale();const hp=Math
     healT:t.heal?1.5:0 });}
 // spawn at a specific board position (used by splitters)
 function spawnAt(id,x,row){ spawn(id,row,x); }
-function atkMul(d){ return d.synD*(d.buffDmg||1); }
+function atkMul(d){ return d.synD*(d.buffDmg||1)*defPower(); }
 function shoot(d,tg){G.projectiles.push({x:d.px,y:d.py-cell*.15,target:tg,dmg:d.dmg*atkMul(d),speed:560,
     kind:d.proj,splash:d.splash||0,pierce:d.pierce,bonus:d.bonus||0,air:d.air,
     slow:d.slow||0,knock:d.knock||0,ignoreArmor:d.ignoreArmor,alive:true});}
@@ -695,7 +701,7 @@ function update(dt){
   for(const d of G.defenders){
     if(!d.alive)continue;
     d.anim+=dt; if(d.pop>1)d.pop=Math.max(1,d.pop-dt*3); if(d.hurt>0)d.hurt-=dt*3; if(d.atk>0)d.atk=Math.max(0,d.atk-dt*3);
-    if(d.role==='producer'){ d.prodT+=dt; if(d.prodT>=d.every){d.prodT=0;const a=Math.max(1,Math.round(d.produce*d.synP*producerFactor()));
+    if(d.role==='producer'){ d.prodT+=dt; if(d.prodT>=d.every){d.prodT=0;const a=Math.max(1,Math.round(d.produce*d.synP*producerFactor()*producerScale()));
       G.sun+=a;floatText(d.px,d.py-cell*.4,'+'+a,'#ffd94a');burst(d.px,d.py-cell*.3,'#ffe27a',8);syncHUD();} continue; }
     if(d.role==='support') continue;                 // raccoon: buff-only, no attack
     d.fireT+=dt;
@@ -794,9 +800,9 @@ function defenderAttack(d){
     for(const e of G.enemies){ if(!canHit(d,e)||e.row!==d.r)continue;
       if(Math.abs(e.x-d.px)<=cell*d.range && e.x<=d.px){ hitEnemy(e,d.dmg*mul); } }
     shoot(d,tg); muzzle(d.px,d.py-cell*.15); return true; }
-  // mole underground area: hit ground bugs around it, ignoring armor
+  // mole underground area: hit ground bugs around it (incl. burrowed diggers!), ignoring armor
   if(d.groundAoe){ let hit=false;
-    for(const e of G.enemies){ if(!e.alive||e.air||e.underground)continue;
+    for(const e of G.enemies){ if(!e.alive||e.air)continue;   // reaches underground diggers too
       if(Math.hypot(e.x-d.px,e.y-d.py)/cell<=d.range){ hitEnemy(e,d.dmg*mul,0,true); hit=true; } }
     if(hit){ burst(d.px,d.py,'#8a6a44',8); ringFx(d.px,d.py,'#b89060',d.range*cell); } return hit; }
   // default single-target (ranged projectile or melee), with per-ability riders
@@ -1289,7 +1295,8 @@ function showLoadout(n){
 }
 
 function beginLevel(n,loadout){
-  Object.assign(G,{phase:'play',level:n,hp:5,maxHp:5,sun:150,speed:1,
+  G.level=n;
+  Object.assign(G,{phase:'play',level:n,hp:5,maxHp:5,sun:startSun(),speed:1,
     defenders:[],enemies:[],projectiles:[],particles:[],floats:[],selected:null,sellMode:false,
     loadout:(loadout&&loadout.length)?loadout:defaultLoadout(),
     spawnQueue:buildLevel(n),spawnT:0,prepT:5,spawning:false,
