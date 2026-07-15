@@ -93,9 +93,12 @@
   .lvl .boss{position:absolute;top:-6px;right:-4px;font-size:13px;}
 
   /* deck builder */
-  #deckWrap{width:100%;max-width:460px;max-height:64vh;overflow-y:auto;overflow-x:hidden;padding:4px 6px;
+  #deckWrap,#loWrap{width:100%;max-width:460px;max-height:56vh;overflow-y:auto;overflow-x:hidden;padding:4px 6px;
     touch-action:pan-y;-webkit-overflow-scrolling:touch;}
-  #deckWrap::-webkit-scrollbar{width:6px;} #deckWrap::-webkit-scrollbar-thumb{background:rgba(255,255,255,.2);border-radius:3px;}
+  #deckWrap::-webkit-scrollbar,#loWrap::-webkit-scrollbar{width:6px;} #deckWrap::-webkit-scrollbar-thumb,#loWrap::-webkit-scrollbar-thumb{background:rgba(255,255,255,.2);border-radius:3px;}
+  .deckDesc{font-size:12.5px;line-height:1.4;color:#eaf6d8;background:rgba(0,0,0,.28);border-radius:10px;
+    padding:8px 10px;margin:8px 0 2px;min-height:34px;text-align:center;}
+  .deckDesc b{color:var(--gold);}
   .dLabel{font-size:14px;font-weight:800;color:#dcefc6;text-align:right;margin:10px 4px 4px;}
   .deckRow{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;}
   .slot{position:relative;aspect-ratio:.86;border-radius:12px;border:2px dashed rgba(255,255,255,.22);
@@ -153,25 +156,44 @@
    ========================================================================== */
 
 /* --------------------------------------------------------------------------
-   DEFENDERS (15).  role: producer | melee | ranged.
-   proj:null => instant/melee hit.  splash:cells => AoE.  air:true => hits flyers.
+   DEFENDERS (15) — each has a UNIQUE ability (a different tool, not a stat swap).
+   Ability flags: hitCell=hit all bugs in own lane at melee range · swipe=own lane
+   + the two neighbours · wall=blocks the lane · guard=halve bite dmg to adjacent
+   allies · slow=slow the target · airOnly=only flyers · air=ground+air · line=hit
+   every bug in the row within range (pierce) · sniper=long range/leader · splash=AoE
+   · groundAoe+ignoreArmor=underground area hit · role:'support'=buff neighbours.
    -------------------------------------------------------------------------- */
 const DEFENDERS = {
-  snail:   {name:'שבלול', cost:50, hp:160, role:'producer', produce:25, every:6, tint:'#e0a878'},
-  hedgehog:{name:'קיפוד', cost:75, hp:340, role:'melee', range:1.3, dmg:20, rate:1.1, tint:'#7d5f3e'},
-  frog:    {name:'צפרדע', cost:100,hp:170, role:'ranged',range:3.3, dmg:24, rate:1.05,proj:'tongue', tint:'#5bbb4a'},
-  bee:     {name:'דבורה', cost:100,hp:90,  role:'ranged',range:3.0, dmg:12, rate:2.3, proj:'sting', air:true, tint:'#ffce4a'},
-  rabbit:  {name:'ארנב',  cost:75, hp:150, role:'melee', range:1.25,dmg:11, rate:2.4, tint:'#f0e5da'},
-  bird:    {name:'ציפור', cost:150,hp:140, role:'ranged',range:3.6, dmg:20, rate:1.5, proj:'seed', air:true, tint:'#4aa3e0'},
-  squirrel:{name:'סנאי',  cost:150,hp:170, role:'ranged',range:3.0, dmg:22, rate:1.1, proj:'acorn', splash:0.9, tint:'#b07a45'},
-  mouse:   {name:'עכבר',  cost:25, hp:100, role:'producer', produce:15, every:5, tint:'#9aa0a8'},
-  turtle:  {name:'צב',    cost:125,hp:1100,role:'melee', range:1.05,dmg:9,  rate:1.7, tint:'#5a8a4a'},
-  fox:     {name:'שועל',  cost:200,hp:170, role:'ranged',range:4.6, dmg:58, rate:0.62,proj:'dart', air:true, tint:'#e0692a'},
-  owl:     {name:'ינשוף', cost:175,hp:160, role:'ranged',range:3.9, dmg:30, rate:1.25,proj:'feather', air:true, pierce:true, tint:'#8a6a44'},
-  cat:     {name:'חתול',  cost:125,hp:280, role:'melee', range:1.4, dmg:30, rate:1.3, tint:'#9aa0aa'},
-  mole:    {name:'חפרפרת',cost:150,hp:220, role:'ranged',range:1.7, dmg:26, rate:1.4, proj:null, splash:1.0, tint:'#4a3a48'},
-  bear:    {name:'דוב',   cost:300,hp:650, role:'melee', range:1.5, dmg:55, rate:1.0, tint:'#8a5f3a'},
-  raccoon: {name:'ראקון', cost:125,hp:200, role:'ranged',range:2.9, dmg:20, rate:1.4, proj:'coin', bonus:8, tint:'#9aa0a8'},
+  snail:   {name:'שבלול', cost:50, hp:160, role:'producer', produce:25, every:6, tint:'#e0a878',
+            desc:'מייצר טל (מטבע) כדי להציב עוד חיות. עמוד התווך של הכלכלה.'},
+  hedgehog:{name:'קיפוד', cost:75, hp:340, role:'melee', range:1.15, dmg:15, rate:1.3, hitCell:true, tint:'#7d5f3e',
+            desc:'קוצים: פוגע בו-זמנית בכל החרקים שנוגעים בו — מעולה נגד נחילים.'},
+  frog:    {name:'צפרדע', cost:100,hp:170, role:'ranged',range:3.3, dmg:14, rate:1.0, proj:'tongue', slow:1.6, tint:'#5bbb4a',
+            desc:'לשון דביקה: מאטה מאוד את החרק שנפגע — שולט בקצב הזחילה.'},
+  bee:     {name:'דבורה', cost:75, hp:90,  role:'ranged',range:3.2, dmg:16, rate:2.2, proj:'sting', airOnly:true, tint:'#ffce4a',
+            desc:'מומחית אוויר: זולה ומהירה, אך פוגעת רק בחרקים מעופפים.'},
+  rabbit:  {name:'ארנב',  cost:100,hp:150, role:'ranged',range:2.6, dmg:14, rate:1.5, proj:'kick', knock:0.55, tint:'#f0e5da',
+            desc:'בעיטה: דוחפת את החרק אחורה בנתיב — קונה לך זמן יקר.'},
+  bird:    {name:'ציפור', cost:150,hp:140, role:'ranged',range:3.6, dmg:20, rate:1.5, proj:'seed', air:true, tint:'#4aa3e0',
+            desc:'כל-מטרה: יורה זרעים על חרקי קרקע וגם על מעופפים.'},
+  squirrel:{name:'סנאי',  cost:150,hp:170, role:'ranged',range:3.0, dmg:20, rate:1.05,proj:'acorn', splash:0.9, tint:'#b07a45',
+            desc:'בלוט נפץ: פגיעת שטח שפוגעת בכמה חרקים בבת אחת.'},
+  mouse:   {name:'עכבר',  cost:25, hp:100, role:'producer', produce:12, every:5, tint:'#9aa0a8',
+            desc:'מייצר מעט טל, זול ומהיר — כלכלה בסיסית לפתיחת שלב.'},
+  turtle:  {name:'צב',    cost:125,hp:1200,role:'guardian', range:1.05,dmg:6, rate:1.6, wall:true, guard:0.5, tint:'#5a8a4a',
+            desc:'שומר: חוסם את הנתיב וסופג, ומגן על חיות צמודות (חצי נזק).'},
+  fox:     {name:'שועל',  cost:200,hp:170, role:'ranged',range:5.0, dmg:72, rate:0.55,proj:'dart', air:true, sniper:true, tint:'#e0692a',
+            desc:'צלף: טווח ענק ונזק אדיר אך איטי — מחסל את החרק המוביל.'},
+  owl:     {name:'ינשוף', cost:175,hp:160, role:'ranged',range:4.0, dmg:24, rate:1.1, proj:'feather', air:true, line:true, tint:'#8a6a44',
+            desc:'נוצה חודרת: פוגעת בכל החרקים שנמצאים בקו הירי של הנתיב.'},
+  cat:     {name:'חתול',  cost:150,hp:280, role:'melee', range:1.55,dmg:20, rate:1.4, swipe:true, tint:'#9aa0aa',
+            desc:'שריטה רחבה: פוגע בחרקים בנתיב שלו וגם בשני הנתיבים הסמוכים.'},
+  mole:    {name:'חפרפרת',cost:150,hp:220, role:'melee', range:1.7, dmg:24, rate:1.3, groundAoe:true, ignoreArmor:true, tint:'#4a3a48',
+            desc:'מתקפת מחתרת: פוגעת באזור בחרקי קרקע ומתעלמת משריון.'},
+  bear:    {name:'דוב',   cost:300,hp:950, role:'melee', range:1.4, dmg:62, rate:0.9, wall:true, tint:'#8a5f3a',
+            desc:'טנק ענק: חוסם את הנתיב, סופג המון נזק ומכה חזק מאוד.'},
+  raccoon: {name:'ראקון', cost:125,hp:200, role:'support', tint:'#9aa0a8',
+            desc:'תומך: מגביר את הנזק והמהירות של החיות הצמודות אליו.'},
 };
 // unlock schedule: reaching a level makes these available
 const DEF_UNLOCK = {1:['snail','hedgehog'],2:['frog'],3:['bee'],4:['rabbit'],5:['bird'],
@@ -181,17 +203,38 @@ const DEF_UNLOCK = {1:['snail','hedgehog'],2:['frog'],3:['bee'],4:['rabbit'],5:[
    ENEMIES (8).  bite = dps to a defender it's eating.
    -------------------------------------------------------------------------- */
 const ENEMIES = {
-  ant:        {name:'נמלה',    hp:34,  speed:.5,  bite:8,  dmg:1, reward:12, air:false, size:15, tint:'#7a3b1e'},
-  caterpillar:{name:'זחל',     hp:110, speed:.3,  bite:12, dmg:1, reward:20, air:false, size:20, tint:'#8ec04a'},
-  beetle:     {name:'חיפושית', hp:200, speed:.33, bite:16, dmg:2, reward:30, air:false, size:19, tint:'#4e6136', armor:.25},
-  fly:        {name:'זבוב',    hp:28,  speed:.82, bite:6,  dmg:1, reward:16, air:true,  size:13, tint:'#8891a0'},
-  moth:       {name:'פרפר',    hp:70,  speed:.58, bite:8,  dmg:1, reward:22, air:true,  size:17, tint:'#d98cc0'},
-  wasp:       {name:'צרעה',    hp:110, speed:.7,  bite:14, dmg:2, reward:28, air:true,  size:16, tint:'#f0c020'},
-  spider:     {name:'עכביש',   hp:520, speed:.3,  bite:22, dmg:3, reward:120,air:false, size:32, tint:'#3a2038', mini:true},
-  queen:      {name:'מלכת החרקים', hp:1700, speed:.24, bite:40, dmg:5, reward:320, air:false, size:40, tint:'#5a2a5a', armor:.3, boss:true},
+  ant:        {name:'נמלה',    hp:34,  speed:.5,  bite:8,  dmg:1, reward:12, air:false, size:15, tint:'#7a3b1e',
+               desc:'חרק בסיסי — איטי וחלש, אבל מגיע בהמונים.'},
+  caterpillar:{name:'זחל',     hp:110, speed:.3,  bite:12, dmg:1, reward:20, air:false, size:20, tint:'#8ec04a',
+               desc:'זוחל איטי וחסון שסופג הרבה נזק.'},
+  beetle:     {name:'חיפושית', hp:200, speed:.33, bite:16, dmg:2, reward:30, air:false, size:19, tint:'#4e6136', armor:.25,
+               desc:'משוריינת: סופגת פחות נזק בזכות הקליפה הקשה.'},
+  fly:        {name:'זבוב',    hp:28,  speed:.82, bite:6,  dmg:1, reward:16, air:true,  size:13, tint:'#8891a0',
+               desc:'מעופף מהיר — רק חיות אוויר יכולות לפגוע בו.'},
+  moth:       {name:'פרפר',    hp:70,  speed:.58, bite:8,  dmg:1, reward:22, air:true,  size:17, tint:'#d98cc0',
+               desc:'מעופף בינוני עם עמידות סבירה.'},
+  wasp:       {name:'צרעה',    hp:110, speed:.7,  bite:14, dmg:2, reward:28, air:true,  size:16, tint:'#f0c020',
+               desc:'מעופף חזק ומהיר שנושך קשה.'},
+  grasshopper:{name:'חגב',     hp:80,  speed:.62, bite:10, dmg:1, reward:24, air:false, size:18, tint:'#7bbf4a', jump:1,
+               desc:'קופץ מעל מגן קרקע אחד שחוסם אותו — פעם אחת.'},
+  armored:    {name:'שריונן',  hp:120, speed:.34, bite:14, dmg:2, reward:34, air:false, size:20, tint:'#7a8390', shield:120,
+               desc:'מגן פלדה שסופג נזק; עד שהמגן נשבר סופג 75% פחות.'},
+  aphid:      {name:'כנימה',   hp:70,  speed:.5,  bite:8,  dmg:1, reward:22, air:false, size:16, tint:'#9ed36a', split:2,
+               desc:'כשהורגים אותה היא מתפצלת לשתי כנימות קטנות.'},
+  aphidling:  {name:'כנימונת', hp:24,  speed:.72, bite:5,  dmg:1, reward:6,  air:false, size:11, tint:'#b8e08a', internal:true},
+  firefly:    {name:'גחלילית', hp:60,  speed:.5,  bite:6,  dmg:1, reward:26, air:true,  size:15, tint:'#ffe27a', heal:8, healR:1.8,
+               desc:'מרפאה חרקים סביבה בהילה זוהרת — סכנה בנחיל.'},
+  digger:     {name:'חפרן',    hp:100, speed:.42, bite:12, dmg:1, reward:30, air:false, size:18, tint:'#a06a3a', dig:1,
+               desc:'צולל מתחת לאדמה מדי פעם — עוקף מגננים ולא ניתן לפגיעה.'},
+  spider:     {name:'עכביש',   hp:520, speed:.3,  bite:22, dmg:3, reward:120,air:false, size:32, tint:'#3a2038', mini:true,
+               desc:'מיני-בוס חסון שמופיע בשלבים מתקדמים.'},
+  queen:      {name:'מלכת החרקים', hp:1700, speed:.24, bite:40, dmg:5, reward:320, air:false, size:40, tint:'#5a2a5a', armor:.3, boss:true,
+               desc:'הבוסית — עצומה, משוריינת וקטלנית. מופיעה כל 10 שלבים.'},
 };
-// bug collection: a bug is "earned" for your deck once you clear the level it first appears in
-const ENEMY_UNLOCK = {ant:1, caterpillar:2, fly:3, beetle:4, moth:6, wasp:8, spider:8, queen:10};
+// bug collection: a bug is "earned" for your deck once you clear the level it first appears in.
+// New bugs are introduced GRADUALLY and late enough not to break older levels.
+const ENEMY_UNLOCK = {ant:1, caterpillar:2, fly:3, beetle:4, grasshopper:5, moth:6, armored:7, wasp:8, spider:8,
+  aphid:9, firefly:11, digger:13, queen:10};
 
 const SYNERGIES = [
   {a:'frog',b:'bird',dmg:1.25}, {a:'bee',b:'owl',dmg:1.25}, {a:'hedgehog',b:'turtle',dmg:1.2},
@@ -229,11 +272,12 @@ function unlockedDefs(level){ const s=[]; for(let k=1;k<=level;k++) if(DEF_UNLOC
    Collection is derived from campaign progress: animals via DEF_UNLOCK,
    bugs via ENEMY_UNLOCK. Deck (6 animals + 6 bugs) persists in localStorage.
    ========================================================================== */
-const DECK_SIZE=6;
+const DECK_ANIMALS=6, DECK_BUGS=4;                 // deck = 6 animals + 4 bugs
+const LOADOUT_SIZE=6;                              // animals you take into a campaign level
 const ALL_ANIMALS=Object.keys(DEFENDERS);
-const ALL_BUGS=Object.keys(ENEMIES);
+const ALL_BUGS=Object.keys(ENEMIES).filter(id=>!ENEMIES[id].internal);  // hide internal-only bugs
 const DEFAULT_ANIMALS=['snail','hedgehog','frog','bird','turtle','bee'];
-const DEFAULT_BUGS=['ant','caterpillar','fly','beetle','moth','wasp'];
+const DEFAULT_BUGS=['ant','caterpillar','fly','beetle'];
 // reverse lookup: which campaign level introduces each card
 function animalIntro(id){ for(const k in DEF_UNLOCK) if(DEF_UNLOCK[k].includes(id)) return +k; return 99; }
 function bugIntro(id){ return ENEMY_UNLOCK[id]||99; }
@@ -242,13 +286,25 @@ function collectionBugs(){ const p=progress(); return ALL_BUGS.filter(id=>bugInt
 
 function loadDeck(){ try{return JSON.parse(localStorage.getItem('gd_deck'))||null;}catch(e){return null;} }
 function saveDeck(d){ try{localStorage.setItem('gd_deck',JSON.stringify(d));}catch(e){} }
-/* getDeck(): always returns a playable 6+6 deck. Saved picks first, padded with
-   defaults so the game/multiplayer is never short a card. This is THE api Milestone 4 uses. */
+/* getDeck(): always returns a playable 6-animal + 4-bug deck. Saved picks first,
+   padded with defaults so gameplay/multiplayer is never short a card. Milestone 4 uses this. */
 function getDeck(){
   const d=loadDeck()||{animals:[],bugs:[]};
-  const A=[...new Set([...(d.animals||[]),...DEFAULT_ANIMALS,...ALL_ANIMALS])].slice(0,DECK_SIZE);
-  const B=[...new Set([...(d.bugs||[]),...DEFAULT_BUGS,...ALL_BUGS])].slice(0,DECK_SIZE);
+  const A=[...new Set([...(d.animals||[]),...DEFAULT_ANIMALS,...ALL_ANIMALS])].slice(0,DECK_ANIMALS);
+  const B=[...new Set([...(d.bugs||[]),...DEFAULT_BUGS,...ALL_BUGS])].slice(0,DECK_BUGS);
   return {animals:A,bugs:B};
+}
+// per-level animal loadout (which 6 animals you bring into a campaign level)
+function loadLoadout(){ try{return JSON.parse(localStorage.getItem('gd_loadout'))||null;}catch(e){return null;} }
+function saveLoadout(a){ try{localStorage.setItem('gd_loadout',JSON.stringify(a));}catch(e){} }
+/* default loadout for a level = your saved loadout ∩ unlocked, padded from deck/collection.
+   Never blocks the player: returns whatever is available (1..6). */
+function defaultLoadout(){
+  const unl=collectionAnimals();
+  const saved=(loadLoadout()||[]).filter(id=>unl.includes(id));
+  const deckA=getDeck().animals.filter(id=>unl.includes(id));
+  const merged=[...new Set([...saved,...deckA,...unl])].slice(0,LOADOUT_SIZE);
+  return merged;
 }
 
 /* ---------- layout ---------- */
@@ -461,7 +517,61 @@ function eQueen(g,s,t){const l=Math.sin(t*6)*s*.15;g.strokeStyle='#2a142a';g.lin
   g.fillStyle='#ffce4a';g.beginPath();g.moveTo(-s*1.1,-s*.4);g.lineTo(-s*1.05,-s*.75);g.lineTo(-s*.9,-s*.5);
   g.lineTo(-s*.8,-s*.8);g.lineTo(-s*.7,-s*.5);g.lineTo(-s*.6,-s*.72);g.lineTo(-s*.55,-s*.38);g.closePath();g.fill();
   eye(g,-s*.9,-s*.1,s*.14,-.4);eye(g,-s*.7,-s*.12,s*.12,-.4);}
-const ENE_ART={ant:eAnt,caterpillar:eCaterpillar,beetle:eBeetle,fly:eFly,moth:eMoth,wasp:eWasp,spider:eSpider,queen:eQueen};
+function eGrasshopper(g,s,t){const l=Math.sin(t*11)*s*.3;
+  // big hind legs
+  g.strokeStyle='#4f8a2a';g.lineWidth=s*.14;g.lineCap='round';
+  g.beginPath();g.moveTo(s*.2,s*.1);g.lineTo(s*.55,-s*.35);g.lineTo(s*.75,s*.3+l);g.stroke();
+  g.strokeStyle='#3a6a1e';g.lineWidth=s*.08;for(let i=-1;i<=1;i++){g.beginPath();g.moveTo(-s*.1,s*.1);g.lineTo(-s*.5,s*.35+i*s*.2+l*.3);g.stroke();}
+  sphere(g,s*.15,0,s*.42,'#8ecb52','#5b9430');   // body
+  sphere(g,-s*.5,-s*.05,s*.34,'#9ed36a','#68a038'); // head
+  g.strokeStyle='#3a6a1e';g.lineWidth=s*.05;g.beginPath();g.moveTo(-s*.7,-s*.2);g.lineTo(-s*1.0,-s*.5);g.moveTo(-s*.65,-s*.2);g.lineTo(-s*.9,-s*.55);g.stroke();
+  eye(g,-s*.6,-s*.08,s*.11,-.4);}
+function eArmored(g,s,t){const l=Math.sin(t*8)*s*.16;
+  g.strokeStyle='#3a4048';g.lineWidth=s*.1;g.lineCap='round';
+  for(let i=-1;i<=1;i++){g.beginPath();g.moveTo(0,s*.1);g.lineTo(s*.65,l+i*s*.4);g.moveTo(0,s*.1);g.lineTo(-s*.65,-l+i*s*.4);g.stroke();}
+  sphere(g,-s*.65,0,s*.28,'#4a525c','#2a3038');  // head
+  // metallic plated shell
+  const mg=g.createLinearGradient(0,-s*.7,0,s*.7);mg.addColorStop(0,'#b9c2cc');mg.addColorStop(.5,'#7a8390');mg.addColorStop(1,'#4a525c');
+  g.fillStyle=mg;g.beginPath();g.ellipse(s*.05,0,s*.8,s*.62,0,0,6.2832);g.fill();
+  g.strokeStyle='rgba(30,36,42,.6)';g.lineWidth=s*.05;g.beginPath();g.moveTo(s*.05,-s*.6);g.lineTo(s*.05,s*.6);
+  g.moveTo(-s*.45,-s*.2);g.lineTo(s*.55,-s*.2);g.moveTo(-s*.45,s*.2);g.lineTo(s*.55,s*.2);g.stroke();
+  g.fillStyle='rgba(255,255,255,.5)';g.beginPath();g.ellipse(-s*.2,-s*.3,s*.22,s*.1,-.5,0,6.2832);g.fill();
+  eye(g,-s*.7,-s*.05,s*.08,-.4);}
+function eAphid(g,s,t){const w=Math.sin(t*9)*s*.1;
+  g.strokeStyle='#5a8a3a';g.lineWidth=s*.07;g.lineCap='round';
+  for(let i=-1;i<=1;i++){g.beginPath();g.moveTo(0,s*.1);g.lineTo(s*.5,w+i*s*.35);g.moveTo(0,s*.1);g.lineTo(-s*.5,-w+i*s*.35);g.stroke();}
+  sphere(g,s*.1,0,s*.55,'#a6d972','#6fa542');    // plump pear body
+  sphere(g,-s*.55,-s*.05,s*.3,'#b8e084','#7fb050');
+  eye(g,-s*.62,-s*.05,s*.1,-.4);
+  g.strokeStyle='#5a8a3a';g.lineWidth=s*.05;g.beginPath();g.moveTo(-s*.7,-s*.2);g.lineTo(-s*.95,-s*.5);g.stroke();
+  // two little cornicles (aphid tubes)
+  g.beginPath();g.moveTo(s*.55,-s*.3);g.lineTo(s*.7,-s*.55);g.moveTo(s*.6,-s*.1);g.lineTo(s*.8,-s*.3);g.stroke();}
+function eAphidling(g,s,t){sphere(g,0,0,s*.55,'#bce68e','#88bc58');eye(g,-s*.25,-s*.05,s*.14,-.3);
+  g.strokeStyle='#6a9a48';g.lineWidth=s*.08;g.lineCap='round';g.beginPath();g.moveTo(0,s*.3);g.lineTo(s*.4,s*.55);g.moveTo(0,s*.3);g.lineTo(-s*.4,s*.55);g.stroke();}
+function eFirefly(g,s,t){const w=Math.sin(t*26)*s*.4,glow=.5+.5*Math.sin(t*4);
+  // glow halo
+  const gg=g.createRadialGradient(s*.4,0,2,s*.4,0,s*1.1);gg.addColorStop(0,`rgba(255,236,120,${.5*glow})`);gg.addColorStop(1,'rgba(255,236,120,0)');
+  g.fillStyle=gg;g.beginPath();g.arc(s*.4,0,s*1.1,0,6.2832);g.fill();
+  g.fillStyle='rgba(230,235,245,.5)';g.beginPath();g.ellipse(-s*.05,-s*.4,s*.42,s*.2-Math.abs(w)*.1,.4,0,6.2832);g.fill();
+  g.beginPath();g.ellipse(s*.3,-s*.4,s*.42,s*.2-Math.abs(w)*.1,-.4,0,6.2832);g.fill();
+  sphere(g,-s*.35,0,s*.32,'#3a3a2a','#1e1e14');  // head
+  // glowing abdomen
+  const ag=g.createRadialGradient(s*.45,s*.05,1,s*.45,s*.05,s*.5);ag.addColorStop(0,'#fff6b0');ag.addColorStop(1,`rgba(255,210,60,${.6+.4*glow})`);
+  g.fillStyle=ag;g.beginPath();g.ellipse(s*.45,s*.05,s*.42,s*.36,0,0,6.2832);g.fill();
+  eye(g,-s*.45,-s*.05,s*.1,-.4);}
+function eDigger(g,s,t){
+  // dirt mound it pushes ahead
+  g.fillStyle='#7a5636';g.beginPath();g.ellipse(-s*.55,s*.45,s*.5,s*.24,0,Math.PI,0,true);g.fill();
+  g.fillStyle='#5f4228';for(let i=-1;i<=1;i++){g.beginPath();g.arc(-s*.55+i*s*.22,s*.4,s*.05,0,6.2832);g.fill();}
+  sphere(g,s*.1,0,s*.5,'#a06a3a','#6a4322');     // body
+  sphere(g,-s*.5,s*.05,s*.3,'#f0b8c8','#d090a0'); // pink snout
+  g.fillStyle='#c07088';g.beginPath();g.arc(-s*.68,s*.05,s*.08,0,6.2832);g.fill();
+  g.fillStyle='#1a1420';g.beginPath();g.arc(-s*.32,-s*.08,s*.06,0,6.2832);g.fill();
+  // big digging claws
+  g.fillStyle='#f0d0b0';g.beginPath();g.ellipse(-s*.25,s*.35,s*.2,s*.14,.3,0,6.2832);g.fill();}
+const ENE_ART={ant:eAnt,caterpillar:eCaterpillar,beetle:eBeetle,fly:eFly,moth:eMoth,wasp:eWasp,
+  grasshopper:eGrasshopper,armored:eArmored,aphid:eAphid,aphidling:eAphidling,firefly:eFirefly,digger:eDigger,
+  spider:eSpider,queen:eQueen};
 
 /* ==========================================================================
    ENTITIES
@@ -478,11 +588,20 @@ function place(id,c,r){const t=DEFENDERS[id];
   G.defenders.push({...t,type:id,c,r,alive:true,hp:t.hp,maxHp:t.hp,px:cellCX(c),py:cellCY(r),
     anim:Math.random()*6,fireT:Math.random()*.4,prodT:0,atk:0,hurt:0,pop:1.3,synD:1,synP:1,syn:false});}
 function enemyScale(){return 1+(G.level-1)*0.08;}
-function spawn(id,row){const t=ENEMIES[id];const hp=Math.round(t.hp*enemyScale());
-  G.enemies.push({...t,type:id,row,alive:true,hp,maxHp:hp,x:cellCX(COLS)+cell*.4,y:cellCY(row)+(t.air?-cell*.18:0),
-    baseY:cellCY(row),leg:Math.random()*6,hurt:0,shift:0,eat:null});}
-function shoot(d,tg){G.projectiles.push({x:d.px,y:d.py-cell*.15,target:tg,dmg:d.dmg*d.synD,speed:560,
-    kind:d.proj,splash:d.splash||0,pierce:d.pierce,bonus:d.bonus||0,air:d.air,alive:true});}
+function spawn(id,row,x){const t=ENEMIES[id];const sc=enemyScale();const hp=Math.round(t.hp*sc);
+  G.enemies.push({...t,type:id,row,alive:true,hp,maxHp:hp,x:(x!=null?x:cellCX(COLS)+cell*.4),y:cellCY(row)+(t.air?-cell*.18:0),
+    baseY:cellCY(row),leg:Math.random()*6,hurt:0,shift:0,eat:null,
+    // ability state:
+    slow:0, jumps:t.jump||0, hop:0,
+    shield:t.shield?Math.round(t.shield*sc):0, shieldMax:t.shield?Math.round(t.shield*sc):0,
+    digT:t.dig?2+Math.random()*2:0, underground:false, digDur:0,
+    healT:t.heal?1.5:0 });}
+// spawn at a specific board position (used by splitters)
+function spawnAt(id,x,row){ spawn(id,row,x); }
+function atkMul(d){ return d.synD*(d.buffDmg||1); }
+function shoot(d,tg){G.projectiles.push({x:d.px,y:d.py-cell*.15,target:tg,dmg:d.dmg*atkMul(d),speed:560,
+    kind:d.proj,splash:d.splash||0,pierce:d.pierce,bonus:d.bonus||0,air:d.air,
+    slow:d.slow||0,knock:d.knock||0,ignoreArmor:d.ignoreArmor,alive:true});}
 function burst(x,y,c,n,sp=1){for(let i=0;i<n;i++){const a=Math.random()*6.28,v=(40+Math.random()*120)*sp;
   G.particles.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v-50,life:.5+Math.random()*.5,t:0,col:c,r:2+Math.random()*3.5,grav:220});}}
 function leafBurst(x,y){const cs=['#7cc35a','#5aa03e','#ffd94a','#ff8fb1'];
@@ -494,19 +613,34 @@ function muzzle(x,y){for(let i=0;i<4;i++){const a=Math.random()*6.28,v=30+Math.r
   G.particles.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,life:.25,t:0,col:'#fff6c0',r:2+Math.random()*2,grav:40});}}
 
 function recomputeSynergy(){
-  for(const d of G.defenders){d.synD=1;d.synP=1;d.syn=false;}
+  for(const d of G.defenders){d.synD=1;d.synP=1;d.syn=false;d.buffDmg=1;d.buffRate=1;d.guarded=false;}
+  const adj=(a,b)=>Math.abs(a.c-b.c)+Math.abs(a.r-b.r)===1;
   for(const d of G.defenders)for(const o of G.defenders){
-    if(d===o||Math.abs(d.c-o.c)+Math.abs(d.r-o.r)!==1)continue;
+    if(d===o||!adj(d,o))continue;
+    // pair synergies (glowing link)
     for(const s of SYNERGIES)if((d.type===s.a&&o.type===s.b)||(d.type===s.b&&o.type===s.a)){
-      if(s.dmg){d.synD=Math.max(d.synD,s.dmg);} if(s.prod){d.synP=Math.max(d.synP,s.prod);} d.syn=true;}}
+      if(s.dmg){d.synD=Math.max(d.synD,s.dmg);} if(s.prod){d.synP=Math.max(d.synP,s.prod);} d.syn=true;}
+    // raccoon support: buffs adjacent animals' damage + attack speed
+    if(o.type==='raccoon'){ d.buffDmg=Math.max(d.buffDmg,1.3); d.buffRate=Math.max(d.buffRate,1.35); d.syn=true; }
+    // turtle guardian: adjacent allies take reduced bite damage
+    if(o.guard){ d.guarded=true; }
+  }
 }
 
 /* ==========================================================================
    LEVEL BUILDING  (endless-scaling but finite per level → win when cleared)
    ========================================================================== */
-function enemyPool(n){const p=['ant','ant'];
-  if(n>=2)p.push('caterpillar'); if(n>=3)p.push('fly'); if(n>=4)p.push('beetle','ant');
-  if(n>=6)p.push('moth'); if(n>=8)p.push('wasp'); if(n>=5)p.push('caterpillar');
+function enemyPool(n){const p=['ant','ant','ant'];
+  if(n>=2)p.push('caterpillar');
+  if(n>=3)p.push('fly');
+  if(n>=4)p.push('beetle','ant');
+  if(n>=5)p.push('grasshopper');
+  if(n>=6)p.push('moth','caterpillar');
+  if(n>=7)p.push('armored');
+  if(n>=8)p.push('wasp');
+  if(n>=9)p.push('aphid');
+  if(n>=11)p.push('firefly');
+  if(n>=13)p.push('digger');   // rare (1 of ~14) so it stays a spice, not a wall-breaker
   return p;}
 function pick(a){return a[(Math.random()*a.length)|0];}
 function buildLevel(n){
@@ -563,12 +697,9 @@ function update(dt){
     d.anim+=dt; if(d.pop>1)d.pop=Math.max(1,d.pop-dt*3); if(d.hurt>0)d.hurt-=dt*3; if(d.atk>0)d.atk=Math.max(0,d.atk-dt*3);
     if(d.role==='producer'){ d.prodT+=dt; if(d.prodT>=d.every){d.prodT=0;const a=Math.max(1,Math.round(d.produce*d.synP*producerFactor()));
       G.sun+=a;floatText(d.px,d.py-cell*.4,'+'+a,'#ffd94a');burst(d.px,d.py-cell*.3,'#ffe27a',8);syncHUD();} continue; }
-    d.fireT+=dt; const tg=findTarget(d);
-    if(tg && d.fireT>=1/d.rate){ d.fireT=0; d.atk=1;
-      if(d.proj){ shoot(d,tg); muzzle(d.px,d.py-cell*.15); }
-      else { hitEnemy(tg,d.dmg*d.synD); if(d.splash)splashDamage(tg.x,tg.y,d.splash*cell,d.dmg*d.synD*.6,d.air,tg);
-        burst(tg.x,tg.y,'#ffcaa8',6); ringFx(tg.x,tg.y,'#ffd9a8',d.splash?d.splash*cell:8); }
-    }
+    if(d.role==='support') continue;                 // raccoon: buff-only, no attack
+    d.fireT+=dt;
+    if(d.fireT>=1/(d.rate*(d.buffRate||1)) && defenderAttack(d)){ d.fireT=0; d.atk=1; }
   }
 
   // projectiles
@@ -576,8 +707,10 @@ function update(dt){
     if(!p.alive)continue; const t=p.target;
     if(!t||!t.alive){p.alive=false;continue;}
     const dx=t.x-p.x,dy=t.y-p.y,dist=Math.hypot(dx,dy);
-    if(dist<14){ const killed=hitEnemy(t,p.dmg,p.bonus);
+    if(dist<14){ hitEnemy(t,p.dmg,p.bonus,p.ignoreArmor);
       if(p.splash)splashDamage(t.x,t.y,p.splash*cell,p.dmg*.6,p.air,t);
+      if(p.slow&&t.alive)t.slow=Math.max(t.slow||0,p.slow);
+      if(p.knock&&t.alive)t.x=Math.min(cellCX(COLS)+cell,t.x+p.knock*cell);
       if(!p.pierce)p.alive=false; burst(t.x,t.y,p.kind==='tongue'?'#e0525f':'#cfe86a',6);
       ringFx(t.x,t.y,'#eaff8a',p.splash?p.splash*cell:9);
     } else { p.x+=dx/dist*p.speed*dt; p.y+=dy/dist*p.speed*dt; }
@@ -586,13 +719,28 @@ function update(dt){
   // enemies
   for(const e of G.enemies){
     if(!e.alive)continue;
-    e.leg+=dt*10; if(e.hurt>0)e.hurt-=dt*4;
-    let sp=e.speed*ENEMY_SPEED*cell*dt;
+    e.leg+=dt*10; if(e.hurt>0)e.hurt-=dt*4; if(e.hop>0)e.hop-=dt*4;
+    if(e.slow>0) e.slow-=dt;
+    // healer: pulse-heal nearby bugs
+    if(e.heal){ e.healT-=dt; if(e.healT<=0){ e.healT=2.2;
+      for(const o of G.enemies){ if(o.alive&&o!==e&&Math.hypot(o.x-e.x,o.y-e.y)<=e.healR*cell){ o.hp=Math.min(o.maxHp,o.hp+e.heal); } }
+      ringFx(e.x,e.y,'#ffe27a',e.healR*cell); } }
+    // digger: dive underground on a timer (untargetable + passes defenders), then surface
+    if(e.dig){ if(e.underground){ e.digDur-=dt; if(e.digDur<=0){e.underground=false;e.digT=3+Math.random()*2;burst(e.x,e.y,'#a06a3a',8);} }
+      else { e.digT-=dt; if(e.digT<=0 && e.x<cellCX(COLS-1)){ e.underground=true; e.digDur=2.4; burst(e.x,e.y,'#a06a3a',8);} } }
+    let mul=(e.slow>0?0.45:1);                        // slow effect
+    let sp=e.speed*ENEMY_SPEED*cell*dt*mul;
     e.shift*=(1-dt*2);
-    const blk=frontDefender(e);
-    if(blk){ blk.hp-=e.bite*dt; blk.hurt=1; if(blk.hp<=0){blk.alive=false;leafBurst(blk.px,blk.py);recomputeSynergy();} }
+    const blk=e.underground?null:frontDefender(e);
+    if(blk){
+      // grasshopper leaps over one blocking melee defender (once)
+      if(e.jumps>0){ e.jumps--; e.hop=1; e.x=blk.px-cell*0.58; burst(e.x,e.y-cell*.3,'#cfe86a',6); }
+      else { const gd=blk.guarded?0.5:1; blk.hp-=e.bite*gd*dt; blk.hurt=1;
+        if(blk.hp<=0){blk.alive=false;leafBurst(blk.px,blk.py);recomputeSynergy();} }
+    }
     else e.x-=sp;
-    e.y=e.baseY+(e.air?-cell*.18+Math.sin(e.leg*.5)*cell*.05:0)+e.shift;
+    const hop=e.hop>0?-Math.sin(e.hop*Math.PI)*cell*.35:0;
+    e.y=e.baseY+(e.air?-cell*.18+Math.sin(e.leg*.5)*cell*.05:0)+e.shift+hop;
     if(e.x<boardX-cell*.25){ e.alive=false; loseHp(e.dmg); G.shake=Math.min(1,G.shake+.4); burst(boardX,e.y,'#ff6b6b',12); }
   }
 
@@ -618,22 +766,64 @@ function frontDefender(e){
   }
   return best;
 }
+// can defender d hit enemy e? respects air/airOnly and skips untargetable (underground)
+function canHit(d,e){ if(!e.alive||e.underground)return false;
+  if(d.airOnly) return !!e.air; if(!d.air && e.air) return false; return true; }
 function findTarget(d){
   let best=null,bx=1e9;
-  for(const e of G.enemies){ if(!e.alive)continue; if(e.air&&!d.air)continue;
+  for(const e of G.enemies){ if(!canHit(d,e))continue;
     const dist=Math.hypot(e.x-d.px,e.y-d.py)/cell;
     if(dist<=d.range && e.x<bx){bx=e.x;best=e;} }
   return best;
 }
-function hitEnemy(e,dmg,bonus){
-  const d=e.armor?dmg*(1-e.armor):dmg; e.hp-=d; e.hurt=1;
+/* ability-aware attack. returns true if it fired (so the caller resets the timer). */
+function defenderAttack(d){
+  const mul=atkMul(d);
+  // cat swipe: hit every bug in own lane + the two adjacent lanes, within range
+  if(d.swipe){ let hit=false;
+    for(const e of G.enemies){ if(!canHit(d,e))continue; if(Math.abs(e.row-d.r)>1)continue;
+      if(Math.hypot(e.x-d.px,e.y-d.py)/cell<=d.range){ hitEnemy(e,d.dmg*mul); hit=true; } }
+    if(hit){ burst(d.px,d.py-cell*.2,'#ffe0c0',6); } return hit; }
+  // hedgehog thorns: hit every bug in own lane at melee range
+  if(d.hitCell){ let hit=false;
+    for(const e of G.enemies){ if(!canHit(d,e)||e.row!==d.r)continue;
+      if(Math.abs(e.x-d.px)<=cell*d.range){ hitEnemy(e,d.dmg*mul); hit=true; } }
+    if(hit) burst(d.px,d.py,'#e6d3b0',5); return hit; }
+  // owl piercing line: hit every bug in own lane within range
+  if(d.line){ const tg=findTarget(d); if(!tg)return false;
+    for(const e of G.enemies){ if(!canHit(d,e)||e.row!==d.r)continue;
+      if(Math.abs(e.x-d.px)<=cell*d.range && e.x<=d.px){ hitEnemy(e,d.dmg*mul); } }
+    shoot(d,tg); muzzle(d.px,d.py-cell*.15); return true; }
+  // mole underground area: hit ground bugs around it, ignoring armor
+  if(d.groundAoe){ let hit=false;
+    for(const e of G.enemies){ if(!e.alive||e.air||e.underground)continue;
+      if(Math.hypot(e.x-d.px,e.y-d.py)/cell<=d.range){ hitEnemy(e,d.dmg*mul,0,true); hit=true; } }
+    if(hit){ burst(d.px,d.py,'#8a6a44',8); ringFx(d.px,d.py,'#b89060',d.range*cell); } return hit; }
+  // default single-target (ranged projectile or melee), with per-ability riders
+  const tg=findTarget(d); if(!tg)return false;
+  if(d.proj){ shoot(d,tg); muzzle(d.px,d.py-cell*.15); }
+  else { hitEnemy(tg,d.dmg*mul,0,d.ignoreArmor);
+    if(d.splash)splashDamage(tg.x,tg.y,d.splash*cell,d.dmg*mul*.6,d.air,tg);
+    if(d.slow&&tg.alive)tg.slow=Math.max(tg.slow||0,d.slow);
+    if(d.knock&&tg.alive)tg.x=Math.min(cellCX(COLS)+cell,tg.x+d.knock*cell);
+    burst(tg.x,tg.y,'#ffcaa8',6); ringFx(tg.x,tg.y,'#ffd9a8',d.splash?d.splash*cell:8); }
+  return true;
+}
+function hitEnemy(e,dmg,bonus,ignoreArmor){
+  // armored shield absorbs most damage until broken
+  if(e.shield>0 && !ignoreArmor){ e.shield-=dmg; e.hurt=1;
+    if(e.shield<0){ e.hp+=e.shield; e.shield=0; } else { e.hp-=dmg*0.25; }
+  } else {
+    const d=(e.armor&&!ignoreArmor)?dmg*(1-e.armor):dmg; e.hp-=d; e.hurt=1;
+  }
   if(e.hp<=0){ e.alive=false; const rw=e.reward+(bonus||0); G.sun+=rw;
     floatText(e.x,e.y-cell*.3,'+'+rw,'#ffe27a'); leafBurst(e.x,e.y);
+    if(e.split){ for(let i=0;i<e.split;i++) spawnAt('aphidling', e.x+(i?cell*.25:-cell*.25), e.row); }
     if(e.boss){G.shake=.6;toast('הבוס הובס! 🎉');} syncHUD(); return true; }
   return false;
 }
 function splashDamage(x,y,r,dmg,air,except){
-  for(const e of G.enemies){ if(!e.alive||e===except)continue; if(e.air&&!air)continue;
+  for(const e of G.enemies){ if(!e.alive||e===except||e.underground)continue; if(e.air&&!air)continue;
     if(Math.hypot(e.x-x,e.y-y)<=r) hitEnemy(e,dmg); }
 }
 function loseHp(n){G.hp=Math.max(0,G.hp-n);syncHUD();if(G.hp<=0)loseLevel();}
@@ -853,8 +1043,16 @@ function drawDefender(d){
   if(d.syn){ctx.fillStyle='#7ce8ff';ctx.font='11px sans-serif';ctx.textAlign='center';ctx.fillText('✦',d.px,d.py-cell*.72);ctx.textAlign='left';}
 }
 function drawEnemy(e){const s=e.size*(cell/60);
+  if(e.underground){ // burrowed: just a moving dirt mound
+    ctx.fillStyle='rgba(0,0,0,.15)';ctx.beginPath();ctx.ellipse(e.x,e.baseY+s*.5,s*.9,s*.35,0,0,6.28);ctx.fill();
+    ctx.fillStyle='#7a5636';ctx.beginPath();ctx.ellipse(e.x,e.baseY+s*.3,s*.8,s*.4,0,Math.PI,0,true);ctx.fill();
+    ctx.fillStyle='#5f4228';for(let i=-1;i<=1;i++){ctx.beginPath();ctx.arc(e.x+i*s*.35,e.baseY+s*.24,s*.06,0,6.28);ctx.fill();}
+    return; }
   drawCreature(ctx,ENE_ART[e.type],e.x,e.y,s*1.1,e.leg*.3+e.x*.02,0,1,e.hurt);
-  if(e.hp<e.maxHp)hpBar(e.x,e.y-s*1.5,s*1.8,e.hp/e.maxHp,e.boss?'#ff9f4a':e.mini?'#ffd24a':'#ff5b6e');}
+  if(e.slow>0){ ctx.fillStyle='rgba(90,170,255,.28)';ctx.beginPath();ctx.arc(e.x,e.y,s*1.1,0,6.28);ctx.fill();
+    ctx.fillStyle='#bfe0ff';ctx.font='bold 10px sans-serif';ctx.textAlign='center';ctx.fillText('❄',e.x+s,e.y-s);ctx.textAlign='left'; }
+  if(e.hp<e.maxHp)hpBar(e.x,e.y-s*1.5,s*1.8,e.hp/e.maxHp,e.boss?'#ff9f4a':e.mini?'#ffd24a':'#ff5b6e');
+  if(e.shield>0)hpBar(e.x,e.y-s*1.5-7,s*1.8,e.shield/e.shieldMax,'#9fd0ff');}
 function hpBar(x,y,w,fr,col){ctx.fillStyle='rgba(0,0,0,.45)';roundRect(x-w/2,y,w,5,2.5);ctx.fill();ctx.fillStyle=col;roundRect(x-w/2,y,w*Math.max(0,fr),5,2.5);ctx.fill();}
 function drawProj(p){
   // glow
@@ -913,7 +1111,9 @@ function buildBar(){
   sh.addEventListener('click',()=>{G.sellMode=!G.sellMode;sh.classList.toggle('on',G.sellMode);
     if(G.sellMode){G.selected=null;document.querySelectorAll('.card').forEach(c=>c.classList.remove('sel'));}});
   bar.appendChild(sh);
-  for(const id of unlockedDefs(G.level)){const t=DEFENDERS[id];
+  // only the 6 animals chosen for this level (G.loadout), not the whole unlocked set
+  const ids=(G.loadout&&G.loadout.length)?G.loadout:unlockedDefs(G.level).slice(0,LOADOUT_SIZE);
+  for(const id of ids){const t=DEFENDERS[id];
     const card=document.createElement('div');card.className='card';card.dataset.id=id;
     const cv=document.createElement('canvas');cv.width=92;cv.height=92;card.appendChild(cv);
     const nm=document.createElement('div');nm.className='nm';nm.textContent=t.name;card.appendChild(nm);
@@ -928,6 +1128,7 @@ function selectCard(id,card){
   if(G.phase!=='play')return; G.sellMode=false;document.getElementById('shovel').classList.remove('on');
   if(G.selected===id){G.selected=null;card.classList.remove('sel');return;}
   G.selected=id;document.querySelectorAll('.card').forEach(c=>c.classList.remove('sel'));card.classList.add('sel');
+  const t=DEFENDERS[id]; toast(t.name+' — '+(t.desc||''));   // in-game ability tooltip
 }
 function getPos(ev){const r=canvas.getBoundingClientRect();const t=ev.touches?ev.touches[0]:ev;return{x:t.clientX-r.left,y:t.clientY-r.top};}
 canvas.addEventListener('pointermove',ev=>{hover=pointToCell(getPos(ev).x,getPos(ev).y);});
@@ -976,38 +1177,41 @@ function showDeck(){
   deck.bugs=(deck.bugs||[]).filter(id=>ENEMIES[id]);
   const unlA=collectionAnimals(), unlB=collectionBugs();
 
+  function cap(kind){ return kind==='animals'?DECK_ANIMALS:DECK_BUGS; }
   function toggle(kind,id){
     const arr=kind==='animals'?deck.animals:deck.bugs;
     const i=arr.indexOf(id);
     if(i>=0) arr.splice(i,1);
-    else{ if(arr.length>=DECK_SIZE){toast('כבר בחרת 6');return;} arr.push(id); }
+    else{ if(arr.length>=cap(kind)){toast('כבר בחרת '+cap(kind));return;} arr.push(id); }
     saveDeck(deck); render();
   }
+  function info(dataMap,id){ const el=document.getElementById('deckDesc'); if(el) el.innerHTML='<b>'+dataMap[id].name+'</b> — '+(dataMap[id].desc||''); }
   function render(){
     ov.innerHTML=`<h1 style="font-size:23px">🎴 החפיסה שלך</h1>
       <div class="panel" style="width:100%;max-width:480px;padding:14px 16px">
-        <div class="sub" style="font-size:13px">בחר <b>6 חיות</b> ו-<b>6 חרקים</b> לקרב המולטיפלייר. הקש על קלף מהאוסף כדי להוסיף/להסיר.</div>
+        <div class="sub" style="font-size:13px">בנה חפיסה של <b>6 חיות</b> ו-<b>4 חרקים</b> לקרב המולטיפלייר. הקש על קלף כדי לבחור ולראות מה הוא עושה.</div>
+        <div id="deckDesc" class="deckDesc">הקש על קלף כדי לראות את היכולת שלו.</div>
         <div id="deckWrap">
-          <div class="dLabel">🛡️ חיות בחפיסה (${deck.animals.length}/6)</div><div class="deckRow" id="slotsA"></div>
-          <div class="dLabel">🐛 חרקים בחפיסה (${deck.bugs.length}/6)</div><div class="deckRow" id="slotsB"></div>
+          <div class="dLabel">🛡️ חיות בחפיסה (${deck.animals.length}/${DECK_ANIMALS})</div><div class="deckRow" id="slotsA"></div>
+          <div class="dLabel">🐛 חרקים בחפיסה (${deck.bugs.length}/${DECK_BUGS})</div><div class="deckRow" id="slotsB" style="grid-template-columns:repeat(4,1fr)"></div>
           <div class="dLabel">אוסף החיות</div><div class="collGrid" id="collA"></div>
           <div class="dLabel">אוסף החרקים</div><div class="collGrid" id="collB"></div>
         </div>
       </div>
       <div class="row"><button class="btn sec" id="deckBack">◀ תפריט</button></div>`;
-    fillSlots('slotsA',deck.animals,DEF_ART,34,'animals');
-    fillSlots('slotsB',deck.bugs,ENE_ART,30,'bugs');
+    fillSlots('slotsA',deck.animals,DEF_ART,DEFENDERS,34,'animals');
+    fillSlots('slotsB',deck.bugs,ENE_ART,ENEMIES,30,'bugs');
     fillColl('collA',ALL_ANIMALS,unlA,deck.animals,DEF_ART,DEFENDERS,animalIntro,'animals',30);
     fillColl('collB',ALL_BUGS,unlB,deck.bugs,ENE_ART,ENEMIES,bugIntro,'bugs',26);
     document.getElementById('deckBack').onclick=showMenu;
   }
-  function fillSlots(cid,arr,artMap,s,kind){
+  function fillSlots(cid,arr,artMap,dataMap,s,kind){
     const box=document.getElementById(cid);box.innerHTML='';
-    for(let i=0;i<DECK_SIZE;i++){const d=document.createElement('div');d.className='slot'+(arr[i]?' full':'');
+    for(let i=0;i<cap(kind);i++){const d=document.createElement('div');d.className='slot'+(arr[i]?' full':'');
       if(arr[i]){const cv=document.createElement('canvas');cv.width=72;cv.height=72;d.appendChild(cv);
         const g=cv.getContext('2d');g.save();g.translate(36,42);drawStatic(g,artMap[arr[i]],s);g.restore();
         const x=document.createElement('div');x.className='x';x.textContent='✕';d.appendChild(x);
-        d.onclick=()=>toggle(kind,arr[i]);}
+        d.onclick=()=>{info(dataMap,arr[i]);toggle(kind,arr[i]);};}
       else d.innerHTML='<span style="opacity:.4;font-size:20px">＋</span>';
       box.appendChild(d);}
   }
@@ -1018,8 +1222,9 @@ function showDeck(){
       const cv=document.createElement('canvas');cv.width=70;cv.height=70;it.appendChild(cv);
       const g=cv.getContext('2d');g.save();g.translate(35,42);drawStatic(g,artMap[id],s);g.restore();
       const nm=document.createElement('div');nm.className='cn';nm.textContent=dataMap[id].name;it.appendChild(nm);
-      if(locked){const lk=document.createElement('div');lk.className='lk';lk.innerHTML='🔒<span>שלב '+introFn(id)+'</span>';it.appendChild(lk);}
-      else it.onclick=()=>toggle(kind,id);
+      if(locked){const lk=document.createElement('div');lk.className='lk';lk.innerHTML='🔒<span>שלב '+introFn(id)+'</span>';it.appendChild(lk);
+        it.onclick=()=>info(dataMap,id);}
+      else it.onclick=()=>{info(dataMap,id);toggle(kind,id);};
       box.appendChild(it);}
   }
   render();
@@ -1045,9 +1250,48 @@ function showMap(){
   // scroll current level into view
   setTimeout(()=>{const el=grid.children[Math.max(0,p-3)];if(el)el.scrollIntoView({block:'center'});},30);
 }
-function startLevel(n){
+/* startLevel now opens the loadout picker first; beginLevel actually starts play. */
+function startLevel(n){ showLoadout(n); }
+
+function showLoadout(n){
+  G.phase='menu'; ov.classList.remove('hidden'); hideGameUI(true);
+  const unl=collectionAnimals();
+  let pick=defaultLoadout();                     // pre-filled, never blocks the player
+  const maxPick=Math.min(LOADOUT_SIZE, unl.length);
+  function info(id){ const el=document.getElementById('loDesc'); if(el)el.innerHTML='<b>'+DEFENDERS[id].name+'</b> — '+(DEFENDERS[id].desc||''); }
+  function toggle(id){ const i=pick.indexOf(id);
+    if(i>=0) pick.splice(i,1);
+    else{ if(pick.length>=LOADOUT_SIZE){toast('כבר בחרת '+LOADOUT_SIZE);return;} pick.push(id); }
+    render(); }
+  function render(){
+    ov.innerHTML=`<h1 style="font-size:22px">🏵️ שלב ${n} — בחר צוות</h1>
+      <div class="panel" style="width:100%;max-width:460px;padding:14px 16px">
+        <div class="sub" style="font-size:13px">בחר עד <b>${maxPick} חיות</b> לשלב הזה. כל חיה = כלי אחר. הקש לראות יכולת.</div>
+        <div id="loDesc" class="deckDesc">הקש על חיה כדי לראות מה היא עושה.</div>
+        <div class="dLabel">נבחרו (<span id="loN">${pick.length}</span>/${maxPick})</div>
+        <div id="loWrap"><div class="collGrid" id="loColl"></div></div>
+      </div>
+      <div class="row"><button class="btn sec" id="loBack">◀ מפה</button>
+        <button class="btn" id="loStart">התחל שלב ▶</button></div>`;
+    const box=document.getElementById('loColl');box.innerHTML='';
+    for(const id of unl){const it=document.createElement('div');
+      it.className='collItem'+(pick.includes(id)?' inDeck':'');
+      const cv=document.createElement('canvas');cv.width=70;cv.height=70;it.appendChild(cv);
+      const g=cv.getContext('2d');g.save();g.translate(35,42);drawStatic(g,DEF_ART[id],30);g.restore();
+      const nm=document.createElement('div');nm.className='cn';nm.textContent=DEFENDERS[id].name;it.appendChild(nm);
+      it.onclick=()=>{info(id);toggle(id);};
+      box.appendChild(it);}
+    document.getElementById('loBack').onclick=showMap;
+    document.getElementById('loStart').onclick=()=>{ if(pick.length===0)pick=unl.slice(0,maxPick);
+      saveLoadout(pick); beginLevel(n,pick.slice()); };
+  }
+  render();
+}
+
+function beginLevel(n,loadout){
   Object.assign(G,{phase:'play',level:n,hp:5,maxHp:5,sun:150,speed:1,
     defenders:[],enemies:[],projectiles:[],particles:[],floats:[],selected:null,sellMode:false,
+    loadout:(loadout&&loadout.length)?loadout:defaultLoadout(),
     spawnQueue:buildLevel(n),spawnT:0,prepT:5,spawning:false,
     ambientT:0,time:0,shake:0,biome:Math.min(3,Math.floor((n-1)/8))});
   G.levelTotal=G.spawnQueue.length;
