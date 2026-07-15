@@ -123,6 +123,25 @@
   .cbtn{width:36px;height:36px;border-radius:11px;background:var(--ui);border:1.5px solid rgba(255,255,255,.1);
     color:#fff;font-size:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 3px 7px rgba(0,0,0,.4);}
   .cbtn:active{transform:scale(.9);}
+  /* multiplayer UI */
+  #mpUI{position:absolute;left:0;right:0;bottom:0;z-index:6;display:none;flex-direction:column;gap:4px;
+    padding:4px 6px calc(4px + env(safe-area-inset-bottom));}
+  #mpUI.on{display:flex;}
+  .mpBarRow{display:flex;align-items:center;gap:5px;}
+  .mpBarLbl{font-size:10px;font-weight:800;color:#fff;writing-mode:horizontal-tb;min-width:40px;text-align:center;
+    background:rgba(0,0,0,.4);border-radius:8px;padding:4px 2px;}
+  .mpBar{display:flex;gap:5px;overflow-x:auto;flex:1;touch-action:pan-x;scrollbar-width:none;padding:1px;}
+  .mpBar::-webkit-scrollbar{display:none;}
+  .mpCard{position:relative;flex:0 0 auto;width:50px;height:60px;border-radius:11px;border:2px solid #52712f;
+    background:linear-gradient(180deg,#38512180,#1c2e0e);display:flex;flex-direction:column;align-items:center;cursor:pointer;box-shadow:0 3px 7px rgba(0,0,0,.4);}
+  .mpCard.atk{border-color:#a24d4d;background:linear-gradient(180deg,#5a2e2e80,#2e1010);}
+  .mpCard.sel{border-color:var(--gold);box-shadow:0 0 0 2px var(--gold);transform:translateY(-3px);}
+  .mpCard.poor{opacity:.4;}
+  .mpCard canvas{width:38px;height:38px;pointer-events:none;}
+  .mpCard .co{font-size:10px;font-weight:800;color:var(--gold);}
+  #mpTop{position:absolute;top:calc(6px + env(safe-area-inset-top));left:0;right:0;z-index:6;display:none;justify-content:space-between;align-items:center;padding:0 10px;pointer-events:none;}
+  #mpTop.on{display:flex;}
+  #mpExit{pointer-events:auto;}
   #toast{position:absolute;top:100px;left:50%;transform:translateX(-50%);z-index:8;background:rgba(0,0,0,.72);
     color:#fff;padding:7px 16px;border-radius:14px;font-weight:700;font-size:14px;opacity:0;transition:opacity .3s;pointer-events:none;max-width:80%;text-align:center;}
   .legend{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;max-width:360px;}
@@ -143,6 +162,12 @@
   <div id="ctrl"><div class="cbtn" id="pauseBtn">⏸</div><div class="cbtn" id="speedBtn">1×</div><div class="cbtn" id="mapBtn">🗺️</div></div>
   <div id="toast"></div>
   <div id="bar"></div>
+
+  <div id="mpTop"><div class="chip" id="mpInfo">⚔️</div><button class="cbtn" id="mpExit">✕</button></div>
+  <div id="mpUI">
+    <div class="mpBarRow"><div class="mpBarLbl">🛡️ הגנה</div><div class="mpBar" id="mpDef"></div></div>
+    <div class="mpBarRow"><div class="mpBarLbl">⚔️ תקיפה</div><div class="mpBar" id="mpAtk"></div></div>
+  </div>
 
   <div id="ov"></div>
 </div></div>
@@ -1084,7 +1109,10 @@ function shade(hex,f){const n=parseInt(hex.slice(1),16);let r=(n>>16)&255,g=(n>>
    LOOP
    ========================================================================== */
 let last=0;
-function loop(ts){const dt=Math.min(.05,(ts-last)/1000||0);last=ts;update(dt);draw();requestAnimationFrame(loop);}
+function loop(ts){const dt=Math.min(.05,(ts-last)/1000||0);last=ts;
+  if(typeof MP!=='undefined' && MP.active){ mpUpdate(dt); mpDraw(); }
+  else { update(dt); draw(); }
+  requestAnimationFrame(loop);}
 
 /* ==========================================================================
    UI / INPUT
@@ -1170,9 +1198,11 @@ function showMenu(){
       <div class="best">🏆 הגעת לשלב ${p} מתוך ${MAX_LEVEL}</div>
       <div class="row"><button class="btn" id="playBtn">שחק ▶</button>
         <button class="btn sec" id="deckBtn">🎴 חפיסה</button></div>
+      <div class="row"><button class="btn sec" id="mpBtn" style="background:linear-gradient(180deg,#8fb6ff,#5a7fe0);box-shadow:0 6px 0 #3a56b0,0 10px 16px rgba(0,0,0,.4);color:#0a1740">⚔️ מולטיפלייר</button></div>
     </div>`;
   document.getElementById('playBtn').addEventListener('click',showMap);
   document.getElementById('deckBtn').addEventListener('click',showDeck);
+  document.getElementById('mpBtn').addEventListener('click',mpShowIntro);
 }
 
 /* ---------- deck builder screen ---------- */
@@ -1341,6 +1371,270 @@ function seedFlowers(){flowers=[];for(let i=0;i<46;i++){const r=Math.random();
   let k='flower';if(r<.16)k='pebble';else if(r<.24)k='mushroom';else if(r<.34)k='clover';
   flowers.push({x:.03+Math.random()*.94,y:.06+Math.random()*.88,r:3+Math.random()*3.5,rot:Math.random()*6,
     c:['#ff6f9c','#ffd94a','#ff8f5b','#c98fff','#ff5b6e','#ffffff','#ff9ec4'][i%7],k});}}
+/* ==========================================================================
+   MULTIPLAYER (Milestone 4) — real-time 1v1 vs a SIMULATED bot opponent.
+   Fully isolated from the solo engine (own state, sim, render, input).
+   Attack + Defense share ONE sun pool: every bug you launch is sun you didn't
+   spend on defense. Reads your loadout via getDeck(). Win by draining the
+   opponent's hearts. Milestone 5 swaps `transport` for WebRTC/WebSocket only.
+   ========================================================================== */
+const MP_COLS=6, MP_ROWS=4, MP_START_SUN=175, MP_HP=10, MP_REGEN=13;
+let MP={active:false};
+function mpBugCost(id){ return Math.round(ENEMIES[id].reward*1.6); }
+function mpField(owner){ return {owner,hp:MP_HP,maxHp:MP_HP,sun:MP_START_SUN,
+  defenders:[],enemies:[],projectiles:[],parts:[],floats:[],bx:0,by:0,bw:0,bh:0,cell:40}; }
+const fcx=(F,c)=>F.bx+(c+.5)*F.cell, fcy=(F,r)=>F.by+(r+.5)*F.cell;
+function mpLayout(){
+  const topPad=54, botPad=150, gap=8;
+  const availH=viewH-topPad-botPad-gap, w=viewW-8;
+  const oppH=availH*0.40, myH=availH*0.60;
+  layoutField(MP.opp, 4, topPad, w, oppH);
+  layoutField(MP.me, 4, topPad+oppH+gap, w, myH);
+}
+function layoutField(F,x,y,w,h){ F.cell=Math.floor(Math.min((w-6)/MP_COLS,(h-6)/MP_ROWS));
+  F.bw=F.cell*MP_COLS; F.bh=F.cell*MP_ROWS; F.bx=Math.round(x+(w-F.bw)/2); F.by=Math.round(y+(h-F.bh)/2);
+  for(const d of F.defenders){d.px=fcx(F,d.c);d.py=fcy(F,d.r);} for(const e of F.enemies){e.baseY=fcy(F,e.row);} }
+
+/* ---------- TRANSPORT LAYER (abstraction) ----------
+   Every state change is a discrete action routed through transport.send().
+   The bot emits identical actions. SIMULATED now = applied locally; Milestone 5
+   would serialize+send over the network here, with the remote peer calling applyAction. */
+const transport = {
+  send(action){ applyAction(action); }   // SIMULATED (local). Real net: encode + datachannel.send here.
+};
+function applyAction(a){
+  // a.by = who acts ('me'|'opp').  place -> own field.  launch -> opponent field.
+  const actor = a.by==='me'?MP.me:MP.opp;
+  if(a.t==='place'){
+    const cost=DEFENDERS[a.id].cost;
+    if(actor.sun<cost || fDefAt(actor,a.c,a.r)) return false;
+    actor.sun-=cost; mpPlace(actor,a.id,a.c,a.r); return true;
+  }
+  if(a.t==='launch'){
+    const cost=mpBugCost(a.id); if(actor.sun<cost) return false;
+    const target=a.by==='me'?MP.opp:MP.me;      // your bugs crawl in the OPPONENT's garden
+    actor.sun-=cost; mpSpawn(target,a.id,a.row); return true;
+  }
+  return false;
+}
+const fDefAt=(F,c,r)=>F.defenders.find(d=>d.c===c&&d.r===r&&d.alive);
+function mpPlace(F,id,c,r){ const t=DEFENDERS[id];
+  F.defenders.push({...t,type:id,c,r,alive:true,hp:t.hp,maxHp:t.hp,px:fcx(F,c),py:fcy(F,r),
+    anim:Math.random()*6,fireT:Math.random()*.4,prodT:0,atk:0,hurt:0,pop:1.3}); }
+function mpSpawn(F,id,row){ const t=ENEMIES[id];
+  F.enemies.push({...t,type:id,row,alive:true,hp:t.hp,maxHp:t.hp,x:fcx(F,MP_COLS)+F.cell*.4,y:fcy(F,row)+(t.air?-F.cell*.18:0),
+    baseY:fcy(F,row),leg:Math.random()*6,hurt:0,slow:0,jumps:t.jump||0,hop:0,
+    shield:t.shield||0,shieldMax:t.shield||0,digT:t.dig?2+Math.random()*2:0,underground:false,digDur:0,healT:t.heal?1.5:0}); }
+
+/* ---------- BOT (dumb-but-alive; acts through the same transport as a human) ---------- */
+function mpBotTick(dt){
+  MP.botT-=dt; if(MP.botT>0) return; MP.botT=0.7+Math.random()*1.1;
+  const F=MP.opp, deck=MP.oppDeck;
+  // decide: defend (place animal) or attack (launch bug), based on pressure + sun
+  const pressure=MP.opp.enemies.length;                 // bugs I launched at the bot
+  const wantDefend = pressure>MP.opp.defenders.length || Math.random()<0.5;
+  if(wantDefend){
+    const id=deck.animals[(Math.random()*deck.animals.length)|0];
+    if(F.sun>=DEFENDERS[id].cost){ // random empty cell, prefer front columns
+      for(let tries=0;tries<8;tries++){ const c=(Math.random()*MP_COLS)|0, r=(Math.random()*MP_ROWS)|0;
+        if(!fDefAt(F,c,r)){ transport.send({by:'opp',t:'place',id,c,r}); break; } } }
+  } else {
+    const id=deck.bugs[(Math.random()*deck.bugs.length)|0];
+    if(F.sun>=mpBugCost(id)) transport.send({by:'opp',t:'launch',id,row:(Math.random()*MP_ROWS)|0});
+  }
+}
+
+/* ---------- SIM ---------- */
+function mpUpdate(dt){
+  if(MP.over){ return; }
+  MP.me.sun=Math.min(999,MP.me.sun+MP_REGEN*dt);
+  MP.opp.sun=Math.min(999,MP.opp.sun+MP_REGEN*dt);
+  mpBotTick(dt);
+  mpStepField(MP.me,dt); mpStepField(MP.opp,dt);
+  mpSyncUI();
+  if(MP.me.hp<=0||MP.opp.hp<=0) mpEnd(MP.opp.hp<=0);
+}
+function mpFindTarget(F,d){ let best=null,bx=1e9;
+  for(const e of F.enemies){ if(!e.alive||e.underground)continue;
+    if(d.airOnly&&!e.air)continue; if(!d.air&&e.air)continue;
+    const dist=Math.hypot(e.x-d.px,e.y-d.py)/F.cell; if(dist<=d.range&&e.x<bx){bx=e.x;best=e;} }
+  return best; }
+function mpFront(F,e){ if(e.air)return null; let best=null,bx=-1;
+  for(const d of F.defenders){ if(!d.alive||d.r!==e.row)continue;
+    if(d.px<=e.x&&d.px>bx&&(e.x-d.px)<F.cell*.55){bx=d.px;best=d;} } return best; }
+function mpHurt(F,e,dmg,ignoreArmor){
+  if(e.shield>0&&!ignoreArmor){ e.shield-=dmg; e.hurt=1; if(e.shield<0){e.hp+=e.shield;e.shield=0;} else e.hp-=dmg*0.25; }
+  else { e.hp-=(e.armor&&!ignoreArmor)?dmg*(1-e.armor):dmg; e.hurt=1; }
+  if(e.hp<=0){ e.alive=false; mpBurst(F,e.x,e.y,'#8fd14a',10);
+    if(e.split){ for(let i=0;i<e.split;i++){ const c=mpBugCost; mpSpawnAtX(F,'aphidling',e.x+(i?F.cell*.25:-F.cell*.25),e.row); } } }
+}
+function mpSpawnAtX(F,id,x,row){ const t=ENEMIES[id];
+  F.enemies.push({...t,type:id,row,alive:true,hp:t.hp,maxHp:t.hp,x,y:fcy(F,row),baseY:fcy(F,row),leg:0,hurt:0,slow:0,jumps:0,hop:0,shield:0,shieldMax:0,digT:0,underground:false,digDur:0,healT:0}); }
+function mpSplash(F,x,y,r,dmg,air){ for(const e of F.enemies){ if(!e.alive||e.underground)continue; if(e.air&&!air)continue;
+  if(Math.hypot(e.x-x,e.y-y)<=r) mpHurt(F,e,dmg); } }
+function mpStepField(F,dt){
+  // defenders
+  for(const d of F.defenders){ if(!d.alive)continue;
+    d.anim+=dt; if(d.pop>1)d.pop=Math.max(1,d.pop-dt*3); if(d.hurt>0)d.hurt-=dt*3; if(d.atk>0)d.atk=Math.max(0,d.atk-dt*3);
+    if(d.role==='producer'){ d.prodT+=dt; if(d.prodT>=d.every){d.prodT=0;F.sun=Math.min(999,F.sun+d.produce);mpBurst(F,d.px,d.py-8,'#ffe27a',6);} continue; }
+    if(d.role==='support')continue;
+    d.fireT+=dt; if(d.fireT<1/d.rate)continue;
+    // area abilities
+    if(d.hitCell||d.swipe||d.groundAoe){ let hit=false; const laneR=d.swipe?1:0;
+      for(const e of F.enemies){ if(!e.alive)continue; if(d.groundAoe){if(e.air)continue;}else{if(e.underground)continue; if(d.airOnly&&!e.air)continue; if(!d.air&&e.air)continue;}
+        if(Math.abs(e.row-d.r)<=laneR && Math.hypot(e.x-d.px,e.y-d.py)/F.cell<=d.range){ mpHurt(F,e,d.dmg,d.groundAoe); hit=true; } }
+      if(hit){d.fireT=0;d.atk=1;mpBurst(F,d.px,d.py,'#ffe0c0',5);} continue; }
+    const tg=mpFindTarget(F,d); if(!tg)continue; d.fireT=0; d.atk=1;
+    if(d.proj){ F.projectiles.push({x:d.px,y:d.py-F.cell*.15,target:tg,dmg:d.dmg,speed:F.cell*9,kind:d.proj,splash:d.splash||0,pierce:d.pierce,air:d.air,slow:d.slow||0,knock:d.knock||0,alive:true}); }
+    else { mpHurt(F,tg,d.dmg,d.ignoreArmor); if(d.splash)mpSplash(F,tg.x,tg.y,d.splash*F.cell,d.dmg*.6,d.air);
+      if(d.slow&&tg.alive)tg.slow=Math.max(tg.slow||0,d.slow); if(d.knock&&tg.alive)tg.x=Math.min(fcx(F,MP_COLS)+F.cell,tg.x+d.knock*F.cell);
+      mpBurst(F,tg.x,tg.y,'#ffcaa8',5); }
+  }
+  // projectiles
+  for(const p of F.projectiles){ if(!p.alive)continue; const t=p.target;
+    if(!t||!t.alive){p.alive=false;continue;} const dx=t.x-p.x,dy=t.y-p.y,dist=Math.hypot(dx,dy);
+    if(dist<12){ mpHurt(F,t,p.dmg); if(p.splash)mpSplash(F,t.x,t.y,p.splash*F.cell,p.dmg*.6,p.air);
+      if(p.slow&&t.alive)t.slow=Math.max(t.slow||0,p.slow); if(!p.pierce)p.alive=false; mpBurst(F,t.x,t.y,'#cfe86a',5); }
+    else { p.x+=dx/dist*p.speed*dt; p.y+=dy/dist*p.speed*dt; } }
+  // enemies
+  for(const e of F.enemies){ if(!e.alive)continue;
+    e.leg+=dt*10; if(e.hurt>0)e.hurt-=dt*4; if(e.hop>0)e.hop-=dt*4; if(e.slow>0)e.slow-=dt;
+    if(e.heal){ e.healT-=dt; if(e.healT<=0){e.healT=2.2; for(const o of F.enemies)if(o.alive&&o!==e&&Math.hypot(o.x-e.x,o.y-e.y)<=e.healR*F.cell)o.hp=Math.min(o.maxHp,o.hp+e.heal);} }
+    if(e.dig){ if(e.underground){e.digDur-=dt;if(e.digDur<=0){e.underground=false;e.digT=3+Math.random()*2;}} else {e.digT-=dt;if(e.digT<=0&&e.x<fcx(F,MP_COLS-1)){e.underground=true;e.digDur=2.4;}} }
+    const sp=e.speed*ENEMY_SPEED*F.cell*dt*(e.slow>0?0.45:1);
+    const blk=e.underground?null:mpFront(F,e);
+    if(blk){ if(e.jumps>0){e.jumps--;e.hop=1;e.x=blk.px-F.cell*.58;} else { blk.hp-=e.bite*dt;blk.hurt=1; if(blk.hp<=0){blk.alive=false;mpBurst(F,blk.px,blk.py,'#7cc35a',8);} } }
+    else e.x-=sp;
+    const hop=e.hop>0?-Math.sin(e.hop*Math.PI)*F.cell*.35:0;
+    e.y=e.baseY+(e.air?-F.cell*.18+Math.sin(e.leg*.5)*F.cell*.05:0)+hop;
+    if(e.x<F.bx-F.cell*.2){ e.alive=false; F.hp=Math.max(0,F.hp-1); mpBurst(F,F.bx,e.y,'#ff6b6b',10); }
+  }
+  for(const p of F.parts){p.t+=dt;p.vy+=180*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;}
+  F.enemies=F.enemies.filter(e=>e.alive); F.projectiles=F.projectiles.filter(p=>p.alive);
+  F.defenders=F.defenders.filter(d=>d.alive); F.parts=F.parts.filter(p=>p.t<p.life);
+}
+function mpBurst(F,x,y,col,n){ for(let i=0;i<n;i++){const a=Math.random()*6.28,v=30+Math.random()*90;
+  F.parts.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v-40,life:.4+Math.random()*.4,t:0,col,r:2+Math.random()*2.5});} }
+
+/* ---------- RENDER ---------- */
+function mpDraw(){
+  mpLayout();
+  ctx.clearRect(0,0,viewW,viewH);
+  const g=ctx.createLinearGradient(0,0,0,viewH); g.addColorStop(0,'#a7d76a'); g.addColorStop(1,'#5c9a3a');
+  ctx.fillStyle=g; ctx.fillRect(0,0,viewW,viewH);
+  mpDrawField(MP.opp,'👾 היריב',true);
+  mpDrawField(MP.me,'🛡️ אתה',false);
+}
+function mpDrawField(F,label,isOpp){
+  // board
+  ctx.fillStyle='rgba(0,0,0,.18)';roundRect(F.bx-3,F.by+4,F.bw+6,F.bh+6,12);ctx.fill();
+  for(let r=0;r<MP_ROWS;r++){const y=F.by+r*F.cell;ctx.fillStyle=r%2?'#7cc24a':'#8ed24f';ctx.fillRect(F.bx,y,F.bw,F.cell);}
+  ctx.strokeStyle='rgba(30,55,20,.4)';ctx.lineWidth=2;roundRect(F.bx,F.by,F.bw,F.bh,10);ctx.stroke();
+  // home marker (left)
+  ctx.fillStyle=isOpp?'rgba(255,120,120,.5)':'rgba(120,200,255,.5)';ctx.fillRect(F.bx-4,F.by,4,F.bh);
+  // creatures depth-sorted
+  const s=F.cell*0.4;
+  const list=[...F.defenders.map(d=>({y:d.py,f:()=>{drawCreature(ctx,DEF_ART[d.type],d.px,d.py-F.cell*.06,s,d.anim,d.atk,d.pop,d.hurt);
+      if(d.hp<d.maxHp)hpBar(d.px,d.py-F.cell*.6,F.cell*.6,d.hp/d.maxHp,'#8fe04a');}})),
+    ...F.enemies.map(e=>({y:e.y,f:()=>mpDrawEnemy(F,e)}))].sort((a,b)=>a.y-b.y);
+  list.forEach(o=>o.f());
+  F.projectiles.forEach(p=>{ctx.fillStyle=p.kind==='tongue'?'#e0525f':'#d9e86a';ctx.beginPath();ctx.arc(p.x,p.y,4,0,6.28);ctx.fill();});
+  F.parts.forEach(p=>{const a=1-p.t/p.life;ctx.globalAlpha=Math.max(0,a);ctx.fillStyle=p.col;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,6.28);ctx.fill();ctx.globalAlpha=1;});
+  // label + hearts
+  ctx.fillStyle='rgba(0,0,0,.55)';roundRect(F.bx,F.by-19,140,17,8);ctx.fill();
+  ctx.fillStyle='#fff';ctx.font='bold 12px Varela Round,sans-serif';ctx.textAlign='left';
+  ctx.fillText(label+'  '+'❤️'.repeat(Math.max(0,F.hp>5?5:F.hp))+(F.hp>5?'+':''),F.bx+6,F.by-6);
+  ctx.fillStyle='#ffce4a';ctx.textAlign='right';ctx.fillText('☀️'+Math.floor(F.sun),F.bx+F.bw,F.by-6);ctx.textAlign='left';
+}
+function mpDrawEnemy(F,e){ const s=e.size*(F.cell/60)*1.1;
+  if(e.underground){ ctx.fillStyle='#7a5636';ctx.beginPath();ctx.ellipse(e.x,e.baseY+s*.3,s*.7,s*.35,0,Math.PI,0,true);ctx.fill();return; }
+  drawCreature(ctx,ENE_ART[e.type],e.x,e.y,s,e.leg*.3+e.x*.02,0,1,e.hurt);
+  if(e.slow>0){ctx.fillStyle='rgba(90,170,255,.28)';ctx.beginPath();ctx.arc(e.x,e.y,s,0,6.28);ctx.fill();}
+  if(e.hp<e.maxHp)hpBar(e.x,e.y-s*1.4,s*1.7,e.hp/e.maxHp,'#ff5b6e');
+  if(e.shield>0)hpBar(e.x,e.y-s*1.4-6,s*1.7,e.shield/e.shieldMax,'#9fd0ff');
+}
+
+/* ---------- INPUT + UI ---------- */
+function mpSelect(kind,id,el){ if(MP.sel&&MP.sel.el)MP.sel.el.classList.remove('sel');
+  if(MP.sel&&MP.sel.id===id&&MP.sel.kind===kind){MP.sel=null;return;} MP.sel={kind,id,el};el.classList.add('sel'); toast(DEFENDERS[id]?DEFENDERS[id].name+' — '+DEFENDERS[id].desc:ENEMIES[id].name+' — '+ENEMIES[id].desc); }
+function mpBuildBars(){
+  const deck=MP.myDeck;
+  const def=document.getElementById('mpDef'); def.innerHTML='';
+  for(const id of deck.animals){ const c=document.createElement('div');c.className='mpCard';
+    const cv=document.createElement('canvas');cv.width=72;cv.height=72;c.appendChild(cv);const g=cv.getContext('2d');g.save();g.translate(36,44);drawStatic(g,DEF_ART[id],26);g.restore();
+    const co=document.createElement('div');co.className='co';co.textContent='☀️'+DEFENDERS[id].cost;c.appendChild(co);
+    c.dataset.id=id;c.onclick=()=>mpSelect('animal',id,c);def.appendChild(c); }
+  const atk=document.getElementById('mpAtk'); atk.innerHTML='';
+  for(const id of deck.bugs){ const c=document.createElement('div');c.className='mpCard atk';
+    const cv=document.createElement('canvas');cv.width=72;cv.height=72;c.appendChild(cv);const g=cv.getContext('2d');g.save();g.translate(36,44);drawStatic(g,ENE_ART[id],24);g.restore();
+    const co=document.createElement('div');co.className='co';co.textContent='☀️'+mpBugCost(id);c.appendChild(co);
+    c.dataset.id=id;c.onclick=()=>mpSelect('bug',id,c);atk.appendChild(c); }
+}
+function mpSyncUI(){
+  document.querySelectorAll('#mpDef .mpCard').forEach(c=>c.classList.toggle('poor',MP.me.sun<DEFENDERS[c.dataset.id].cost));
+  document.querySelectorAll('#mpAtk .mpCard').forEach(c=>c.classList.toggle('poor',MP.me.sun<mpBugCost(c.dataset.id)));
+  const info=document.getElementById('mpInfo');
+  if(info)info.innerHTML='☀️'+Math.floor(MP.me.sun)+'  ❤️'+MP.me.hp+'  •  יריב ❤️'+MP.opp.hp;
+}
+function inField(F,x,y){ return x>=F.bx&&x<F.bx+F.bw&&y>=F.by&&y<F.by+F.bh; }
+canvas.addEventListener('pointerdown',ev=>{ if(!MP.active||MP.over)return;
+  const r=canvas.getBoundingClientRect(),x=ev.clientX-r.left,y=ev.clientY-r.top;
+  if(!MP.sel){ toast('בחר חיה (הגנה) או חרק (תקיפה) מלמטה'); return; }
+  if(MP.sel.kind==='animal'){ if(!inField(MP.me,x,y)){toast('הצב חיות בגינה שלך (למטה)');return;}
+    const c=Math.floor((x-MP.me.bx)/MP.me.cell),rr=Math.floor((y-MP.me.by)/MP.me.cell);
+    if(c<0||c>=MP_COLS||rr<0||rr>=MP_ROWS)return;
+    if(MP.me.sun<DEFENDERS[MP.sel.id].cost){toast('אין מספיק שמש ☀️');return;}
+    if(fDefAt(MP.me,c,rr)){toast('התא תפוס');return;}
+    transport.send({by:'me',t:'place',id:MP.sel.id,c,r:rr}); }
+  else { if(!inField(MP.opp,x,y)){toast('שגר חרקים לגינת היריב (למעלה)');return;}
+    const rr=Math.floor((y-MP.opp.by)/MP.opp.cell); if(rr<0||rr>=MP_ROWS)return;
+    if(MP.me.sun<mpBugCost(MP.sel.id)){toast('אין מספיק שמש ☀️');return;}
+    transport.send({by:'me',t:'launch',id:MP.sel.id,row:rr}); mpBurst(MP.opp,fcx(MP.opp,MP_COLS),fcy(MP.opp,rr),'#c04040',6); }
+});
+
+/* ---------- SCREENS ---------- */
+function mpShowIntro(){
+  G.phase='menu'; ov.classList.remove('hidden'); hideGameUI(true);
+  const d=getDeck();
+  ov.innerHTML=`<h1 style="font-size:26px">⚔️ מולטיפלייר</h1>
+    <div class="panel"><div class="sub">קרב 1 על 1 בזמן אמת.<br><b>הגן</b> על הגינה שלך והשמד את גינת היריב.<br>כל שמש שמשקיעים בתקיפה — לא הולכת להגנה!</div>
+    <div class="sub" style="font-size:12px;opacity:.8">החפיסה שלך: ${d.animals.length} חיות + ${d.bugs.length} חרקים · היריב כרגע בוט מדומה 🤖</div>
+    <div class="row"><button class="btn" id="mpQuick">🎲 יריב אקראי</button></div>
+    <div class="row"><button class="btn sec" id="mpFriend">👥 הזמן חבר (בקרוב)</button></div></div>
+    <div class="row"><button class="btn sec" id="mpBack">◀ תפריט</button></div>`;
+  document.getElementById('mpQuick').onclick=()=>mpMatchmaking();
+  document.getElementById('mpFriend').onclick=()=>toast('הזמנת חבר תתווסף ב-Milestone 5 (רשת אמיתית)');
+  document.getElementById('mpBack').onclick=showMenu;
+}
+function mpMatchmaking(){
+  ov.innerHTML=`<h1 style="font-size:24px">🔎 מחפש יריב...</h1>
+    <div class="panel"><div class="sub" id="mmDots">מתחבר לשחקן זמין באותה רשת…</div></div>`;
+  let n=0; const iv=setInterval(()=>{document.getElementById('mmDots').textContent='מתחבר לשחקן זמין…'+'•'.repeat(n%4);n++;},300);
+  setTimeout(()=>{ clearInterval(iv); mpStart(); }, 1600+Math.random()*900);   // SIMULATED match found
+}
+function mpStart(){
+  const my=getDeck();
+  MP={active:true,over:false, me:mpField('me'), opp:mpField('opp'),
+      myDeck:my, oppDeck:getDeck(), sel:null, botT:1.2};
+  ov.classList.add('hidden'); hideGameUI(true);
+  document.getElementById('mpUI').classList.add('on');
+  document.getElementById('mpTop').classList.add('on');
+  document.getElementById('mpExit').onclick=()=>mpQuit();
+  mpBuildBars(); mpSyncUI(); toast('הקרב התחיל! הגן ותקוף בו-זמנית');
+}
+function mpQuit(){ MP.active=false;
+  document.getElementById('mpUI').classList.remove('on'); document.getElementById('mpTop').classList.remove('on');
+  showMenu(); }
+function mpEnd(youWon){ MP.over=true; MP.active=false;
+  document.getElementById('mpUI').classList.remove('on'); document.getElementById('mpTop').classList.remove('on');
+  ov.classList.remove('hidden');
+  ov.innerHTML=`<h1>${youWon?'🏆 ניצחת!':'💀 הפסדת'}</h1>
+    <div class="panel"><div class="sub">${youWon?'פרצת את גינת היריב!':'היריב פרץ את הגינה שלך.'}</div>
+    <div class="row"><button class="btn" id="mpAgain">שחק שוב 🔄</button><button class="btn sec" id="mpMenu">◀ תפריט</button></div></div>`;
+  document.getElementById('mpAgain').onclick=()=>mpMatchmaking();
+  document.getElementById('mpMenu').onclick=showMenu;
+}
+
 function boot(){resize();seedFlowers();seedScene();hideGameUI(true);showMenu();requestAnimationFrame(loop);}
 window.addEventListener('load',boot);
 </script>
